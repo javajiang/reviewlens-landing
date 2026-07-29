@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="ReviewLens helps e-commerce teams extract customer reviews and turn complaints into actionable product improvement ideas." />
+  <title>ReviewLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#08101e;
+      --bg2:#0f1729;
+      --panel:rgba(255,255,255,.06);
+      --panel-2:rgba(255,255,255,.08);
+      --line:rgba(255,255,255,.12);
+      --text:#f5f7fb;
+      --muted:rgba(245,247,251,.72);
+      --soft:rgba(245,247,251,.48);
+      --indigo:#7c83ff;
+      --pink:#ef7bb6;
+      --cyan:#7be7ff;
+      --green:#56e39f;
+      --shadow:0 24px 80px rgba(0,0,0,.28);
+      --r:28px;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      color:var(--text);
+      background:
+        radial-gradient(circle at 15% 10%, rgba(124,131,255,.18), transparent 30%),
+        radial-gradient(circle at 85% 25%, rgba(239,123,182,.14), transparent 32%),
+        radial-gradient(circle at 50% 90%, rgba(91,227,159,.10), transparent 28%),
+        linear-gradient(180deg, #060b14 0%, var(--bg) 30%, #0b1322 100%);
+      font-family:"DM Sans", system-ui, sans-serif;
+    }
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      background-image:linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+      background-size:64px 64px;
+      mask-image:radial-gradient(circle at center, black 18%, transparent 75%);
+      opacity:.45;
+    }
+    a{color:inherit}
+    .page{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:22px 18px 42px}
+    .nav{
+      position:sticky;top:14px;z-index:10;
+      display:flex;align-items:center;justify-content:space-between;gap:14px;
+      padding:14px 18px;border:1px solid var(--line);border-radius:999px;
+      background:rgba(8,16,30,.72);backdrop-filter:blur(22px);box-shadow:var(--shadow)
+    }
+    .brand{display:flex;align-items:center;gap:12px;text-decoration:none}
+    .brand-mark{
+      width:30px;height:30px;border-radius:10px;
+      background:linear-gradient(135deg,var(--indigo),var(--pink));
+      box-shadow:0 0 0 4px rgba(255,255,255,.04)
+    }
+    .brand-name{font-family:"Space Grotesk", sans-serif;font-weight:700;letter-spacing:-.03em}
+    .nav-links{display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:flex-end}
+    .nav-links a{
+      text-decoration:none;color:var(--muted);font-size:14px;font-weight:500;
+    }
+    .nav-links a:hover{color:var(--text)}
+    .nav-links .btn{
+      padding:10px 14px;border-radius:999px;border:1px solid var(--line);
+      background:rgba(255,255,255,.04);color:var(--text)
+    }
+    .hero{
+      min-height:84vh;display:flex;align-items:center;padding:72px 0 36px;
+    }
+    .hero-inner{
+      width:100%;
+      display:grid;
+      grid-template-columns:1fr;
+      gap:28px;
+      justify-items:center;
+      text-align:center;
+    }
+    .eyebrow{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:8px 14px;border-radius:999px;
+      background:rgba(124,131,255,.12);border:1px solid rgba(124,131,255,.28);
+      color:#cfd2ff;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase
+    }
+    .eyebrow i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px rgba(86,227,159,.16)}
+    h1{
+      margin:0;
+      font-family:"Space Grotesk", sans-serif;
+      font-size:clamp(56px,9vw,112px);
+      line-height:.92;
+      letter-spacing:-.06em;
+      max-width:10ch;
+    }
+    .lead{
+      margin:0;
+      max-width:62ch;
+      font-size:clamp(17px,2vw,21px);
+      line-height:1.7;color:var(--muted)
+    }
+    .status{
+      display:inline-flex;align-items:center;gap:10px;
+      padding:10px 16px;border-radius:999px;
+      background:rgba(255,255,255,.06);border:1px solid var(--line);
+      color:#d8f7e7;font-weight:700
+    }
+    .status span{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px rgba(86,227,159,.14)}
+    .cta{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+    .cta a{
+      text-decoration:none;
+      padding:14px 20px;
+      border-radius:999px;
+      font-weight:700;
+      border:1px solid transparent;
+    }
+    .cta .primary{
+      background:linear-gradient(135deg,var(--indigo),var(--pink));
+      color:white;
+      box-shadow:0 20px 40px rgba(124,131,255,.18);
+    }
+    .cta .secondary{background:rgba(255,255,255,.05);border-color:var(--line);color:var(--text)}
+    .panel{
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      border:1px solid var(--line);
+      border-radius:var(--r);
+      box-shadow:var(--shadow);
+    }
+    .snapshot{
+      max-width:860px;
+      width:100%;
+      padding:18px;
+      margin:0 auto;
+    }
+    .snapshot-inner{
+      border-radius:22px;
+      padding:22px;
+      background:linear-gradient(180deg, rgba(9,14,25,.95), rgba(13,20,36,.92));
+      border:1px solid rgba(255,255,255,.08);
+    }
+    .snapshot-top{display:flex;justify-content:space-between;align-items:center;color:var(--soft);font-size:12px;margin-bottom:14px}
+    .snapshot-body{
+      display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:center
+    }
+    .snapshot-card{
+      padding:20px;border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)
+    }
+    .snapshot-card h3{margin:0 0 8px;font-family:"Space Grotesk",sans-serif;font-size:18px;letter-spacing:-.03em}
+    .snapshot-card p{margin:0;color:var(--muted);line-height:1.6;font-size:14px}
+    .bars{display:grid;gap:10px}
+    .bar{height:12px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden}
+    .bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--indigo),var(--pink))}
+    .section{padding:34px 0 0}
+    .section-head{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+    .section-head h2{
+      margin:0;font-family:"Space Grotesk",sans-serif;font-size:clamp(34px,4vw,58px);letter-spacing:-.05em;line-height:1
+    }
+    .section-head p{margin:0;max-width:56ch;color:var(--muted);line-height:1.6}
+    .stack{display:grid;gap:16px}
+    .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+    .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+    .feature,.price,.note{
+      padding:22px;border-radius:24px;border:1px solid var(--line);background:var(--panel)
+    }
+    .feature .k{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#b6c0ff}
+    .feature h3,.price h3{margin:12px 0 8px;font-family:"Space Grotesk",sans-serif;font-size:20px;letter-spacing:-.03em}
+    .feature p,.price p,.note p{margin:0;color:var(--muted);line-height:1.65}
+    .price .amt{font-family:"Space Grotesk",sans-serif;font-size:42px;letter-spacing:-.05em;margin:12px 0 8px}
+    .price ul{margin:14px 0 0;padding:0;list-style:none;display:grid;gap:8px;color:var(--muted)}
+    .price li::before{content:"• ";color:var(--cyan)}
+    .footer{
+      margin-top:24px;padding:18px 20px;border-radius:22px;
+      border:1px solid var(--line);background:rgba(255,255,255,.04);
+      display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;color:var(--muted)
+    }
+    .footer a{text-decoration:none}
+    .footer a:hover{color:var(--text)}
+    @media (max-width: 900px){
+      .snapshot-body,.grid-4,.grid-2{grid-template-columns:1fr}
+      .nav{border-radius:24px;align-items:flex-start;flex-direction:column}
+      .nav-links{justify-content:flex-start}
+      .hero{min-height:auto;padding:54px 0 24px}
+      h1{max-width:none}
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="nav">
+      <a class="brand" href="#home">
+        <span class="brand-mark"></span>
+        <span class="brand-name">ReviewLens</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#home">Home</a>
+        <a href="#product">Product</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#contact">Contact</a>
+        <a class="btn" href="privacy.html">Privacy Policy</a>
+        <a class="btn" href="terms.html">Terms of Service</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="home">
+        <div class="hero-inner">
+          <div class="eyebrow"><i></i> product is live</div>
+          <h1>Turn reviews into product improvements.</h1>
+          <p class="lead">ReviewLens extracts e-commerce reviews, groups repeated complaints, and turns customer feedback into clear product improvement ideas.</p>
+          <div class="status"><span></span> Available now</div>
+          <div class="cta">
+            <a class="primary" href="#pricing">View Pricing</a>
+            <a class="secondary" href="mailto:support@voicefix.org">Contact Support</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="product">
+        <div class="section-head">
+          <h2>Product Snapshot</h2>
+          <p>A single focused workflow for teams that want to read reviews faster and make better product decisions.</p>
+        </div>
+        <div class="snapshot panel">
+          <div class="snapshot-inner">
+            <div class="snapshot-top">
+              <span>ReviewLens dashboard</span>
+              <span>live analysis</span>
+            </div>
+            <div class="snapshot-body">
+              <div class="snapshot-card">
+                <h3>What users say</h3>
+                <p>Recurring complaints are grouped into themes so the team can see what matters most.</p>
+              </div>
+              <div class="bars" aria-hidden="true">
+                <div class="bar"><i style="width:82%"></i></div>
+                <div class="bar"><i style="width:65%"></i></div>
+                <div class="bar"><i style="width:48%"></i></div>
+                <div class="bar"><i style="width:74%"></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>What it does</h2>
+          <p>Keep the promise narrow and honest: extract, group, summarize, and suggest. No fake claims.</p>
+        </div>
+        <div class="grid-4">
+          <article class="feature">
+            <div class="k">01</div>
+            <h3>Extract reviews</h3>
+            <p>Pull customer reviews from e-commerce product pages into one place.</p>
+          </article>
+          <article class="feature">
+            <div class="k">02</div>
+            <h3>Group complaints</h3>
+            <p>Cluster repeated issues into themes so patterns are easier to spot.</p>
+          </article>
+          <article class="feature">
+            <div class="k">03</div>
+            <h3>Summarize feedback</h3>
+            <p>Turn long review threads into short, readable takeaways.</p>
+          </article>
+          <article class="feature">
+            <div class="k">04</div>
+            <h3>Suggest improvements</h3>
+            <p>Surface practical product improvement ideas based on complaint trends.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="pricing">
+        <div class="section-head">
+          <h2>Pricing</h2>
+          <p>Two visible tiers are enough for this stage: one entry point and one stronger plan.</p>
+        </div>
+        <div class="grid-2">
+          <article class="price">
+            <h3>Basic</h3>
+            <div class="amt">$19/mo</div>
+            <p>For individual sellers and small teams.</p>
+            <ul>
+              <li>Core review extraction</li>
+              <li>Basic complaint grouping</li>
+              <li>Standard report export</li>
+              <li>Email support</li>
+            </ul>
+          </article>
+          <article class="price">
+            <h3>Pro</h3>
+            <div class="amt">$49/mo</div>
+            <p>For teams that need more volume and flexibility.</p>
+            <ul>
+              <li>Higher analysis volume</li>
+              <li>More projects</li>
+              <li>Priority processing</li>
+              <li>Advanced export</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="contact">
+        <div class="section-head">
+          <h2>Contact</h2>
+          <p>Support, billing, and policy questions all route to the same email.</p>
+        </div>
+        <div class="note">
+          <p><strong>Support email:</strong> <a href="mailto:support@voicefix.org">support@voicefix.org</a></p>
+          <p style="margin-top:10px">Refunds are supported within 7 days of purchase. After 7 days, refunds are not available.</p>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>© ReviewLens. Operated by Hao Jiang.</span>
+        <span><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a> · <a href="mailto:support@voicefix.org">support@voicefix.org</a></span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

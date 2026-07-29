@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Terms of Service for ReviewLens." />
+  <title>Terms of Service - ReviewLens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#08101e; --panel:rgba(255,255,255,.06); --line:rgba(255,255,255,.12);
+      --text:#f5f7fb; --muted:rgba(245,247,251,.72); --indigo:#7c83ff; --pink:#ef7bb6; --green:#56e39f;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;color:var(--text);font-family:"DM Sans",system-ui,sans-serif;
+      background:radial-gradient(circle at 15% 10%, rgba(239,123,182,.14), transparent 30%), linear-gradient(180deg,#060b14 0%, var(--bg) 100%);
+    }
+    .page{max-width:960px;margin:0 auto;padding:22px 18px 42px}
+    .nav{
+      position:sticky;top:14px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+      padding:14px 18px;border:1px solid var(--line);border-radius:24px;background:rgba(8,16,30,.72);backdrop-filter:blur(22px)
+    }
+    a{color:inherit}
+    .brand{text-decoration:none;font-family:"Space Grotesk",sans-serif;font-weight:700}
+    .btn{padding:10px 14px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.04);text-decoration:none}
+    .hero{padding:54px 0 18px}
+    h1{margin:0;font-family:"Space Grotesk",sans-serif;font-size:clamp(42px,7vw,72px);line-height:.96;letter-spacing:-.06em}
+    .meta{margin-top:12px;color:var(--muted);max-width:60ch;line-height:1.7}
+    .card{margin-top:18px;padding:22px;border:1px solid var(--line);border-radius:24px;background:var(--panel)}
+    h2{margin:0 0 10px;font-family:"Space Grotesk",sans-serif;font-size:24px;letter-spacing:-.03em}
+    p{margin:0;color:var(--muted);line-height:1.75;max-width:70ch}
+    .stack{display:grid;gap:16px}
+    .footer{margin-top:20px;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .footer a{text-decoration:none}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="nav">
+      <a class="brand" href="index.html">ReviewLens</a>
+      <div>
+        <a class="btn" href="index.html#pricing">Pricing</a>
+        <a class="btn" href="privacy.html">Privacy Policy</a>
+      </div>
+    </header>
+
+    <main class="hero">
+      <h1>Terms of Service</h1>
+      <p class="meta">ReviewLens, operated by Hao Jiang.</p>
+      <div class="stack">
+        <section class="card">
+          <h2>Use of service</h2>
+          <p>ReviewLens provides review extraction and feedback analysis tools for informational and business use. You agree not to misuse the service or interfere with its operation.</p>
+        </section>
+        <section class="card">
+          <h2>Subscriptions and billing</h2>
+          <p>Subscriptions are billed through third-party payment providers. You are responsible for maintaining valid payment information. Prices may change with notice.</p>
+        </section>
+        <section class="card">
+          <h2>Refund policy</h2>
+          <p>Refunds are available within 7 days of purchase. Refund requests submitted after 7 days are not eligible for a refund.</p>
+        </section>
+        <section class="card">
+          <h2>Intellectual property</h2>
+          <p>The site, brand, and original content remain the property of ReviewLens or its licensors. You retain rights to your own uploaded content, subject to the service terms.</p>
+        </section>
+        <section class="card">
+          <h2>Limitation of liability</h2>
+          <p>ReviewLens is provided on an as-is basis. We do not guarantee that all analysis results will be complete, error-free, or suitable for every business decision.</p>
+        </section>
+        <section class="card">
+          <h2>Contact</h2>
+          <p>Questions about these Terms can be sent to <a href="mailto:support@voicefix.org">support@voicefix.org</a>.</p>
+        </section>
+      </div>
+      <div class="footer">
+        <span><a href="index.html">Back to Home</a></span>
+        <span><a href="privacy.html">Privacy Policy</a> · <a href="mailto:support@voicefix.org">support@voicefix.org</a></span>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
