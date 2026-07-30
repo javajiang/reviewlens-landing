@@ -1,0 +1,10 @@
+{
+  "name": "reviewlens-landing",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ReviewLens landing page and minimal API",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}
