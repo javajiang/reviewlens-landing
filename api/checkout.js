@@ -55,7 +55,6 @@ module.exports = async (req, res) => {
       product_id: productId,
       request_id: `reviewlens-${plan}-${Date.now()}`,
       success_url: `${getBaseUrl(req)}/success.html?plan=${plan}`,
-      cancel_url: `${getBaseUrl(req)}/#pricing`,
     };
 
     const response = await fetch(`${getCreemBaseUrl()}/v1/checkouts`, {
