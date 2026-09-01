@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { URL } = require('url');
-const { getAppBaseUrl, saveInstallation, verifyShopifyHmac, verifyStateCookie } = require('../_shopify');
+const { getAppBaseUrl, saveInstallation, verifyShopifyHmac, verifyState } = require('../_shopify');
 
 async function exchangeCodeForToken({ shop, code }) {
   const key = String(process.env.SHOPIFY_API_KEY || '');
@@ -62,7 +62,7 @@ module.exports = async (req, res) => {
       res.status(400).send('Invalid HMAC');
       return;
     }
-    if (!state || !verifyStateCookie(state, req.headers.cookie)) {
+    if (!state || !verifyState(state, req.headers.cookie)) {
       res.status(400).send('Invalid state');
       return;
     }

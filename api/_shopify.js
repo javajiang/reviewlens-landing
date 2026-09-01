@@ -17,6 +17,24 @@ function getShopifyApiSecret() {
   return String(process.env.SHOPIFY_API_SECRET || '');
 }
 
+function buildSignedStateToken() {
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const sig = crypto.createHmac('sha256', getShopifyApiSecret()).update(nonce).digest('hex');
+  return `${nonce}.${sig}`;
+}
+
+function verifySignedStateToken(token) {
+  const raw = String(token || '');
+  const [nonce, sig] = raw.split('.');
+  if (!nonce || !sig) return false;
+
+  const expected = crypto.createHmac('sha256', getShopifyApiSecret()).update(nonce).digest('hex');
+  const a = Buffer.from(sig, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 function buildInstallUrl(req, shop) {
   const key = getShopifyApiKey();
   if (!key) throw new Error('SHOPIFY_API_KEY is not set');
@@ -24,7 +42,7 @@ function buildInstallUrl(req, shop) {
   const baseUrl = getAppBaseUrl(req);
   const scopes = String(process.env.SHOPIFY_SCOPES || '').trim();
   const redirectUri = String(process.env.SHOPIFY_REDIRECT_URL || `${baseUrl}/api/shopify/callback`).trim();
-  const state = crypto.randomBytes(16).toString('hex');
+  const state = buildSignedStateToken();
 
   const url = new URL(`https://${shop}/admin/oauth/authorize`);
   url.searchParams.set('client_id', key);
@@ -78,6 +96,11 @@ function verifyStateCookie(reqState, cookieHeader) {
   const b = Buffer.from(expected, 'utf8');
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+function verifyState(reqState, cookieHeader) {
+  if (verifySignedStateToken(reqState)) return true;
+  return verifyStateCookie(reqState, cookieHeader);
 }
 
 function verifyShopifyHmac(query) {
@@ -146,6 +169,7 @@ module.exports = {
   buildInstallUrl,
   buildStateCookie,
   verifyShopifyHmac,
+  verifyState,
   verifyStateCookie,
   saveInstallation,
   ensureShopifySchema,
