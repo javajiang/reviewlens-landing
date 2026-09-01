@@ -33,10 +33,6 @@
       background:rgba(255,255,255,.05)
     }
     .primary{background:linear-gradient(135deg,var(--indigo),var(--pink));border-color:transparent}
-    pre{
-      margin:20px 0 0;padding:16px;border-radius:20px;background:rgba(255,255,255,.04);border:1px solid var(--line);
-      overflow:auto;color:#dfe5ff;font-size:13px;line-height:1.6
-    }
   </style>
 </head>
 <body>
@@ -49,17 +45,7 @@
         <a class="primary" href="index.html">Back to Home</a>
         <a href="mailto:support@voicefix.org">Contact Support</a>
       </div>
-      <pre id="debug"></pre>
     </main>
   </div>
-  <script>
-    const params = new URLSearchParams(location.search);
-    const data = {
-      plan: params.get('plan') || '',
-      checkout_id: params.get('checkout_id') || '',
-      payment_status: params.get('payment_status') || '',
-    };
-    document.getElementById('debug').textContent = JSON.stringify(data, null, 2);
-  </script>
 </body>
 </html>

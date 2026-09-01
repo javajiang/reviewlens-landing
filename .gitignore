@@ -4,3 +4,5 @@ work/
 *.png
 .env
 .env.*
+.vercel
+.env*

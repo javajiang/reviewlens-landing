@@ -159,14 +159,6 @@ module.exports = async (req, res) => {
       client.release();
     }
 
-    console.log('Creem webhook stored:', {
-      eventType,
-      status,
-      checkoutId,
-      customerEmail,
-      plan,
-    });
-
     res.status(200).json({ ok: true });
   } catch (error) {
     res.status(500).json({
