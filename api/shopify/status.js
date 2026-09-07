@@ -1,7 +1,9 @@
 const { getPool } = require('../_db');
+const { ensureShopifySchema } = require('../_shopify');
 
 module.exports = async (req, res) => {
   try {
+    await ensureShopifySchema();
     const client = await getPool().connect();
     try {
       const result = await client.query(

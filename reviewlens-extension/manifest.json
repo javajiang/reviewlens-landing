@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "ReviewLens",
+  "version": "0.1.0",
+  "description": "Extract Shopify product reviews and surface negative and positive feedback in the browser.",
+  "action": {
+    "default_title": "ReviewLens",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "tabs", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

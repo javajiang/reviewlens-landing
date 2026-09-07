@@ -17,6 +17,18 @@ function getShopifyApiSecret() {
   return String(process.env.SHOPIFY_API_SECRET || '');
 }
 
+function getShopifyApiVersion() {
+  return String(process.env.SHOPIFY_API_VERSION || '2026-07');
+}
+
+function getShopifyAdminApiBaseUrl(shop) {
+  return `https://${shop}/admin/api/${getShopifyApiVersion()}`;
+}
+
+function normalizeShopDomain(shop) {
+  return String(shop || '').trim().toLowerCase();
+}
+
 function buildSignedStateToken() {
   const nonce = crypto.randomBytes(16).toString('hex');
   const sig = crypto.createHmac('sha256', getShopifyApiSecret()).update(nonce).digest('hex');
@@ -135,8 +147,61 @@ async function ensureShopifySchema() {
         shop_domain TEXT UNIQUE NOT NULL,
         access_token TEXT NOT NULL,
         scope TEXT,
+        current_product_url TEXT,
+        current_product_handle TEXT,
+        current_product_title TEXT,
+        current_product_description TEXT,
+        current_review_count INTEGER,
+        current_analysis_status TEXT,
+        current_target_updated_at TIMESTAMPTZ,
         installed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      ALTER TABLE shopify_installations
+      ADD COLUMN IF NOT EXISTS current_product_url TEXT
+    `);
+    await client.query(`
+      ALTER TABLE shopify_installations
+      ADD COLUMN IF NOT EXISTS current_product_handle TEXT
+    `);
+    await client.query(`
+      ALTER TABLE shopify_installations
+      ADD COLUMN IF NOT EXISTS current_product_title TEXT
+    `);
+    await client.query(`
+      ALTER TABLE shopify_installations
+      ADD COLUMN IF NOT EXISTS current_product_description TEXT
+    `);
+    await client.query(`
+      ALTER TABLE shopify_installations
+      ADD COLUMN IF NOT EXISTS current_review_count INTEGER
+    `);
+    await client.query(`
+      ALTER TABLE shopify_installations
+      ADD COLUMN IF NOT EXISTS current_analysis_status TEXT
+    `);
+    await client.query(`
+      ALTER TABLE shopify_installations
+      ADD COLUMN IF NOT EXISTS current_target_updated_at TIMESTAMPTZ
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS shopify_products (
+        id BIGSERIAL PRIMARY KEY,
+        shop_domain TEXT NOT NULL,
+        product_handle TEXT NOT NULL,
+        product_url TEXT NOT NULL,
+        product_title TEXT,
+        product_description TEXT,
+        product_data JSONB,
+        last_review_count INTEGER,
+        last_scraped_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (shop_domain, product_handle)
       )
     `);
   } finally {
@@ -166,6 +231,9 @@ async function saveInstallation({ shop, accessToken, scope }) {
 
 module.exports = {
   getAppBaseUrl,
+  getShopifyApiVersion,
+  getShopifyAdminApiBaseUrl,
+  normalizeShopDomain,
   buildInstallUrl,
   buildStateCookie,
   verifyShopifyHmac,

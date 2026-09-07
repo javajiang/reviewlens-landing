@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ReviewLens</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="eyebrow">ReviewLens</div>
+        <h1>Connect the current store, then analyze its reviews.</h1>
+        <p class="subhead">The popup detects the active Shopify shop and lets you connect it before scraping.</p>
+      </header>
+
+      <section class="store-card">
+        <div class="store-row">
+          <div>
+            <div class="field-label">Current store</div>
+            <div id="store-name" class="store-value">Detecting...</div>
+          </div>
+          <button id="connect" class="ghost-button">Connect Shopify Store</button>
+        </div>
+        <div id="store-meta" class="status">Open a Shopify storefront tab to detect the shop domain.</div>
+      </section>
+
+      <section class="composer">
+        <label for="url">Product URL fallback</label>
+        <div class="hint">Use this only for manual testing when the current tab is not a Shopify storefront.</div>
+        <input id="url" type="url" placeholder="https://store.com/products/example" />
+        <div class="button-row">
+          <button id="use-current">Use Current Tab</button>
+          <button id="scrape">Analyze Reviews</button>
+        </div>
+        <div id="status" class="status">Ready.</div>
+      </section>
+
+      <section id="results-panel" class="results-panel is-hidden">
+        <div class="view-tabs">
+          <button class="view-tab active" data-view="analysis">Analysis</button>
+          <button class="view-tab" data-view="reviews">Reviews</button>
+        </div>
+
+        <section id="analysis-view" class="analysis-view">
+          <div class="analysis-hook">
+            <div class="hook-title">Your product exposes a few important issues.</div>
+            <div class="locked-list">
+              <div class="locked-item"><span class="locked-index">1.</span><span class="locked-text">Battery life keeps coming up</span></div>
+              <div class="locked-item"><span class="locked-index">2.</span><span class="locked-text">Comfort and fit are mentioned often</span></div>
+              <div class="locked-item"><span class="locked-index">3.</span><span class="locked-text">Noise and build quality appear in complaints</span></div>
+            </div>
+            <div class="unlock-card">
+              <div class="unlock-copy">Full AI recommendations are locked.</div>
+              <button id="unlock-analysis" class="unlock-button">Unlock Full Analysis</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="reviews-view" class="reviews-view is-hidden">
+          <section class="summary">
+            <div><span>Total</span><strong id="total">0</strong></div>
+            <div><span>Negative</span><strong id="negative">0</strong></div>
+            <div><span>Positive</span><strong id="positive">0</strong></div>
+          </section>
+
+          <section class="review-tabs">
+            <button class="tab active" data-tab="negative">Negative Reviews</button>
+            <button class="tab" data-tab="positive">Positive Reviews</button>
+          </section>
+
+          <section id="list" class="list"></section>
+        </section>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
