@@ -73,6 +73,11 @@ module.exports = async (req, res) => {
       res.status(200).json({
         ok: true,
         shop,
+        config: {
+          shopifyScopesSet: Boolean(process.env.SHOPIFY_SCOPES),
+          shopifyScopes: process.env.SHOPIFY_SCOPES || null,
+          shopifyAccessMode: process.env.SHOPIFY_ACCESS_MODE || 'offline',
+        },
         installation: installationResult.rows[0] || null,
         products: productResult.rows,
         hasInstallation: Boolean(installationResult.rows[0]),

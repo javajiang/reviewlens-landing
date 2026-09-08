@@ -17,6 +17,10 @@ function getShopifyApiSecret() {
   return String(process.env.SHOPIFY_API_SECRET || '');
 }
 
+function getShopifyScopes() {
+  return String(process.env.SHOPIFY_SCOPES || '').trim();
+}
+
 function getShopifyApiVersion() {
   return String(process.env.SHOPIFY_API_VERSION || '2026-07');
 }
@@ -52,15 +56,16 @@ function buildInstallUrl(req, shop) {
   if (!key) throw new Error('SHOPIFY_API_KEY is not set');
 
   const baseUrl = getAppBaseUrl(req);
-  const scopes = String(process.env.SHOPIFY_SCOPES || '').trim();
+  const scopes = getShopifyScopes();
   const redirectUri = String(process.env.SHOPIFY_REDIRECT_URL || `${baseUrl}/api/shopify/callback`).trim();
   const state = buildSignedStateToken();
+  const accessMode = String(process.env.SHOPIFY_ACCESS_MODE || 'offline').trim().toLowerCase();
 
   const url = new URL(`https://${shop}/admin/oauth/authorize`);
   url.searchParams.set('client_id', key);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('state', state);
-  url.searchParams.set('grant_options[]', 'per-user');
+  if (accessMode === 'online') url.searchParams.set('grant_options[]', 'per-user');
   if (scopes) url.searchParams.set('scope', scopes);
 
   return { url: url.toString(), state, redirectUri };
@@ -231,6 +236,7 @@ async function saveInstallation({ shop, accessToken, scope }) {
 
 module.exports = {
   getAppBaseUrl,
+  getShopifyScopes,
   getShopifyApiVersion,
   getShopifyAdminApiBaseUrl,
   normalizeShopDomain,
