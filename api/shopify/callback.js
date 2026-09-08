@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { URL } = require('url');
-const { getAppBaseUrl, getShopifyScopes, saveInstallation, verifyShopifyHmac, verifyState } = require('../_shopify');
+const { getAppBaseUrl, saveInstallation, verifyShopifyHmac, verifyState } = require('../_shopify');
 
 async function exchangeCodeForToken({ shop, code }) {
   const key = String(process.env.SHOPIFY_API_KEY || '');
@@ -69,7 +69,7 @@ module.exports = async (req, res) => {
 
     const tokenData = await exchangeCodeForToken({ shop, code });
     const accessToken = String(tokenData.access_token || tokenData.accessToken || '');
-    const scope = String(tokenData.scope || tokenData.associated_user_scope || getShopifyScopes() || '');
+    const scope = String(tokenData.scope || tokenData.associated_user_scope || '');
 
     if (!accessToken) {
       throw new Error('Missing access token');
