@@ -26,6 +26,9 @@ const positiveEl = document.getElementById("positive");
 const listEl = document.getElementById("list");
 const storeNameEl = document.getElementById("store-name");
 const storeMetaEl = document.getElementById("store-meta");
+const productTitleEl = document.getElementById("product-title");
+const productDescriptionEl = document.getElementById("product-description");
+const productMetaEl = document.getElementById("product-meta");
 const resultsPanelEl = document.getElementById("results-panel");
 const analysisViewEl = document.getElementById("analysis-view");
 const reviewsViewEl = document.getElementById("reviews-view");
@@ -254,6 +257,7 @@ function renderStoreState() {
     storeNameEl.textContent = "No Shopify shop detected";
     storeMetaEl.textContent = "Open a Shopify storefront tab, then click Connect.";
     connectButton.disabled = true;
+    renderProductState(null);
     return;
   }
 
@@ -262,8 +266,8 @@ function renderStoreState() {
 
   if (state.auth?.authorized) {
     connectButton.textContent = "Connected";
-    const productText = state.product?.title ? `Product: ${state.product.title}` : "Store connected. Open a product page, then analyze reviews.";
-    storeMetaEl.textContent = productText;
+    storeMetaEl.textContent = "Store connected. Open a product page, then analyze reviews.";
+    renderProductState(state.product);
     return;
   }
 
@@ -273,6 +277,8 @@ function renderStoreState() {
   if (ctx && !ctx.canAuthorize) {
     storeMetaEl.textContent = "This page looks like Shopify, but the shop domain could not be resolved.";
   }
+
+  renderProductState(state.product);
 }
 
 async function getCurrentTab() {
@@ -438,7 +444,24 @@ async function refreshProductInfo() {
     if (!response.ok || !data?.ok) throw new Error(data?.error || "Product fetch failed.");
     state.product = data.product || null;
     await persistProductState();
+    renderProductState(state.product);
   } catch (_) {}
+}
+
+function renderProductState(product) {
+  if (!product?.title) {
+    productTitleEl.textContent = "No product loaded yet.";
+    productDescriptionEl.textContent = "Open a Shopify product page and click Use Current Tab.";
+    productMetaEl.textContent = "Waiting for product metadata.";
+    return;
+  }
+
+  productTitleEl.textContent = product.title;
+  productDescriptionEl.textContent = product.description || "No description returned.";
+  const parts = [];
+  if (product.handle) parts.push(`Handle: ${product.handle}`);
+  if (product.vendor) parts.push(`Vendor: ${product.vendor}`);
+  productMetaEl.textContent = parts.length ? parts.join(" • ") : "Product metadata loaded.";
 }
 
 async function fetchJson(url) {

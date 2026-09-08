@@ -12,7 +12,7 @@ function isValidShop(shop) {
 module.exports = async (req, res) => {
   try {
     const token = String(req.query.token || '');
-    const expected = String(process.env.DEBUG_TOKEN || '');
+    const expected = String(process.env.SHOPIFY_DEBUG_TOKEN || '');
 
     if (!expected || token !== expected) {
       unauthorized(res);

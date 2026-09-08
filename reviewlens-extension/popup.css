@@ -56,6 +56,7 @@ h1 {
 
 .composer,
 .store-card,
+.product-card,
 .results-panel,
 .summary,
 .review-tabs,
@@ -71,6 +72,10 @@ h1 {
 }
 
 .store-card {
+  margin-bottom: 12px;
+}
+
+.product-card {
   margin-bottom: 12px;
 }
 
@@ -91,6 +96,20 @@ h1 {
   font-size: 14px;
   font-weight: 700;
   word-break: break-all;
+}
+
+.product-title {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.3;
+  margin-top: 4px;
+}
+
+.product-description {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .ghost-button,
