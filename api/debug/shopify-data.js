@@ -1,5 +1,5 @@
-const { getPool } = require('../../_db');
-const { ensureShopifySchema, normalizeShopDomain } = require('../../_shopify');
+const { getPool } = require('../_db');
+const { ensureShopifySchema, normalizeShopDomain } = require('../_shopify');
 
 function unauthorized(res) {
   res.status(403).json({ ok: false, error: 'Forbidden' });
