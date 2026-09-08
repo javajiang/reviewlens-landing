@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { getPool } = require('../_db');
 const { ensureShopifySchema, getShopifyAdminApiBaseUrl, normalizeShopDomain } = require('../_shopify');
 
@@ -85,7 +86,13 @@ async function fetchProductFromShopify({ shop, accessToken, handle }) {
     throw new Error(data.errors.map((item) => item.message).join('; '));
   }
 
-  return data.data?.productByHandle || null;
+  return {
+    product: data.data?.productByHandle || null,
+    responseStatus: response.status,
+    responseOk: response.ok,
+    responseErrors: data.errors || [],
+    responseExtensions: data.extensions || null,
+  };
 }
 
 async function upsertProduct(client, { shop, handle, productUrl, product }) {
@@ -150,6 +157,7 @@ module.exports = async (req, res) => {
 
     const shop = normalizeShopDomain(req.query.shop);
     const productUrl = String(req.query.url || '').trim();
+    const debug = String(req.query.debug || '') === '1';
     const handle = normalizeHandle(req.query.handle) || normalizeHandle(handleFromUrl(productUrl));
 
     if (!shop || !isValidShop(shop)) {
@@ -170,11 +178,13 @@ module.exports = async (req, res) => {
         return;
       }
 
-      const product = await fetchProductFromShopify({
+      const token = String(installation.access_token || '');
+      const productResult = await fetchProductFromShopify({
         shop,
-        accessToken: installation.access_token,
+        accessToken: token,
         handle,
       });
+      const product = productResult.product;
 
       if (!product) {
         res.status(404).json({ ok: false, authorized: true, error: 'Product not found' });
@@ -197,6 +207,18 @@ module.exports = async (req, res) => {
           productType: product.productType || '',
           featuredImage: product.featuredImage || null,
         },
+        debug: debug
+          ? {
+              tokenPresent: Boolean(token),
+              tokenFingerprint: token ? crypto.createHash('sha256').update(token).digest('hex').slice(0, 12) : null,
+              responseStatus: productResult.responseStatus,
+              responseOk: productResult.responseOk,
+              responseErrors: productResult.responseErrors,
+              responseExtensions: productResult.responseExtensions,
+              handle,
+              productUrl,
+            }
+          : undefined,
       });
     } finally {
       client.release();

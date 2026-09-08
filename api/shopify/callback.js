@@ -70,6 +70,16 @@ module.exports = async (req, res) => {
     const tokenData = await exchangeCodeForToken({ shop, code });
     const accessToken = String(tokenData.access_token || tokenData.accessToken || '');
     const scope = String(tokenData.scope || tokenData.associated_user_scope || '');
+    const tokenFingerprint = accessToken
+      ? crypto.createHash('sha256').update(accessToken).digest('hex').slice(0, 12)
+      : null;
+
+    console.log('[reviewlens-shopify-callback]', {
+      shop,
+      scope: scope || null,
+      tokenFingerprint,
+      tokenKeys: Object.keys(tokenData || {}),
+    });
 
     if (!accessToken) {
       throw new Error('Missing access token');
