@@ -111,7 +111,12 @@ scrapeButton.addEventListener("click", async () => {
     state.data = response.result;
     renderResult();
     await persistState();
-    setStatus(response.result?.debug?.diagnosis || "Done.");
+    const sync = await syncReviews(response.result);
+    if (sync.ok) {
+      setStatus(`${sync.saved} reviews saved.`);
+    } else {
+      setStatus("Reviews displayed locally, but database sync failed.");
+    }
   } catch (error) {
     setStatus(error instanceof Error ? error.message : String(error), true);
   } finally {
@@ -475,6 +480,67 @@ async function fetchJson(url) {
   }
 
   return response.result;
+}
+
+async function postJson(url, body) {
+  const response = await chrome.runtime.sendMessage({
+    type: "REVIEWLENS_FETCH_JSON",
+    url,
+    method: "POST",
+    body,
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Request failed.");
+  }
+
+  return response.result;
+}
+
+async function syncReviews(data) {
+  try {
+    const targetUrl = data?.url || state.targetUrl || urlInput.value;
+    const shopDomain = state.context?.shopDomain || state.auth?.shopDomain || inferShopDomainFromUrl(targetUrl);
+    const handle = productHandleFromUrl(targetUrl);
+    const reviews = Array.isArray(data?.reviews)
+      ? data.reviews
+      : [...(data?.negativeReviews || []), ...(data?.positiveReviews || [])];
+
+    if (!shopDomain || !handle || !reviews.length) {
+      return { ok: false, saved: 0 };
+    }
+
+    const product = {
+      ...(state.product || {}),
+      handle: state.product?.handle || handle,
+      url: state.product?.url || targetUrl,
+    };
+    const response = await postJson(`${APP_BASE_URL}/api/reviews/import`, {
+      shopDomain,
+      product,
+      reviews,
+      source: primaryReviewSource(data),
+    });
+
+    if (!response.ok || !response.data?.ok) {
+      return { ok: false, saved: 0 };
+    }
+
+    return { ok: true, saved: Number(response.data.saved || reviews.length) };
+  } catch (_) {
+    return { ok: false, saved: 0 };
+  }
+}
+
+function primaryReviewSource(data) {
+  const sources = data?.sources;
+  if (sources && typeof sources === "object") {
+    const [source] = Object.entries(sources).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0] || [];
+    if (source) return source;
+  }
+
+  const reviews = Array.isArray(data?.reviews) ? data.reviews : [];
+  return reviews.find((review) => review?.source)?.source || "";
 }
 
 function isHttpUrl(value) {

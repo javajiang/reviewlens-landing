@@ -209,6 +209,31 @@ async function ensureShopifySchema() {
         UNIQUE (shop_domain, product_handle)
       )
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS review_data (
+        id BIGSERIAL PRIMARY KEY,
+        shop_domain TEXT NOT NULL,
+        product_handle TEXT NOT NULL,
+        product_url TEXT,
+        product_title TEXT,
+        product_description TEXT,
+        reviews JSONB NOT NULL DEFAULT '[]'::jsonb,
+        review_count INTEGER NOT NULL DEFAULT 0,
+        source TEXT,
+        scrape_status TEXT NOT NULL DEFAULT 'completed',
+        scraped_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (shop_domain, product_handle)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS review_data_shop_domain_idx
+      ON review_data (shop_domain)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS review_data_updated_at_idx
+      ON review_data (updated_at)
+    `);
   } finally {
     client.release();
   }

@@ -116,10 +116,17 @@ async function handleJsonRequest(message) {
   const url = String(message?.url || "").trim();
   if (!url) throw new Error("Missing request URL.");
 
+  const method = String(message?.method || "GET").toUpperCase();
+  const headers = { ...(message?.headers || {}) };
+  const hasBody = message?.body !== undefined && message?.body !== null;
+  if (hasBody && !Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) {
+    headers["content-type"] = "application/json";
+  }
+
   const response = await fetch(url, {
-    method: String(message?.method || "GET").toUpperCase(),
-    headers: message?.headers || {},
-    body: message?.body ? JSON.stringify(message.body) : undefined,
+    method,
+    headers,
+    body: hasBody ? JSON.stringify(message.body) : undefined,
   });
 
   const text = await response.text();
