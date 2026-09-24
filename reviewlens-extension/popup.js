@@ -6,6 +6,7 @@ const state = {
   activeTab: "negative",
   context: null,
   auth: null,
+  billing: null,
   product: null,
   hasResults: false,
   targetUrl: "",
@@ -37,7 +38,14 @@ const tabButtons = Array.from(document.querySelectorAll(".tab"));
 const unlockButton = document.getElementById("unlock-analysis");
 
 unlockButton.addEventListener("click", async () => {
-  await chrome.tabs.create({ url: `${APP_BASE_URL}/#pricing`, active: true });
+  const shopDomain = state.context?.shopDomain || state.auth?.shopDomain || inferShopDomainFromUrl(state.targetUrl);
+  if (!shopDomain) {
+    setStatus("Open an authorized Shopify product page first.", true);
+    return;
+  }
+
+  const checkoutUrl = `${APP_BASE_URL}/api/checkout?plan=basic&shop=${encodeURIComponent(shopDomain)}`;
+  await chrome.tabs.create({ url: checkoutUrl, active: true });
 });
 
 bootstrap().catch((error) => {
@@ -186,6 +194,7 @@ async function refreshContext() {
   }
 
   await refreshAuthStatus();
+  await refreshAccessStatus();
   await refreshProductInfo();
   renderStoreState();
 }
@@ -451,6 +460,35 @@ async function refreshProductInfo() {
     await persistProductState();
     renderProductState(state.product);
   } catch (_) {}
+}
+
+async function refreshAccessStatus() {
+  const shopDomain = state.context?.shopDomain || state.auth?.shopDomain || inferShopDomainFromUrl(state.targetUrl);
+  if (!shopDomain || !state.auth?.authorized) {
+    state.billing = null;
+    return;
+  }
+
+  try {
+    const response = await fetchJson(
+      `${APP_BASE_URL}/api/analysis/access?shop=${encodeURIComponent(shopDomain)}`
+    );
+    const data = response.data;
+    if (!response.ok || !data?.ok) throw new Error(data?.error || "Access status failed.");
+    state.billing = {
+      shopDomain,
+      paid: Boolean(data.paid),
+      plan: data.plan || null,
+      updatedAt: data.updatedAt || null,
+    };
+  } catch (_) {
+    state.billing = {
+      shopDomain,
+      paid: false,
+      plan: null,
+      updatedAt: null,
+    };
+  }
 }
 
 function renderProductState(product) {

@@ -111,7 +111,7 @@ module.exports = async (req, res) => {
     try {
       await client.query('BEGIN');
 
-      await client.query(
+    await client.query(
         `
           INSERT INTO creem_webhook_events (
             event_id, event_type, checkout_id, customer_id, customer_email, product_id, plan, status, raw_event
@@ -131,12 +131,37 @@ module.exports = async (req, res) => {
       );
 
       if (eventType === 'checkout.completed') {
+        const requestId = pickFirst(
+          event.request_id,
+          event.requestId,
+          eventObject.request_id,
+          eventObject.requestId,
+          eventObject.metadata?.request_id,
+          eventObject.metadata?.requestId
+        );
+        const session = await client.query(
+          `
+            SELECT request_id, shop_domain, plan, product_id
+            FROM checkout_sessions
+            WHERE checkout_id = $1
+               OR request_id = $2
+            ORDER BY updated_at DESC
+            LIMIT 1
+          `,
+          [checkoutId, requestId]
+        );
+        const checkoutSession = session.rows[0] || null;
+        const shopDomain = checkoutSession?.shop_domain || null;
+        const resolvedPlan = plan || checkoutSession?.plan || null;
+        const resolvedProductId = productId || checkoutSession?.product_id || null;
         await client.query(
           `
             INSERT INTO subscriptions (
-              dedupe_key, customer_email, customer_id, product_id, plan, status, checkout_id, source_event_id, raw_event
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+              dedupe_key, shop_domain, request_id, customer_email, customer_id, product_id, plan, status, checkout_id, source_event_id, raw_event
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (dedupe_key) DO UPDATE SET
+              shop_domain = COALESCE(EXCLUDED.shop_domain, subscriptions.shop_domain),
+              request_id = COALESCE(EXCLUDED.request_id, subscriptions.request_id),
               customer_email = COALESCE(EXCLUDED.customer_email, subscriptions.customer_email),
               customer_id = COALESCE(EXCLUDED.customer_id, subscriptions.customer_id),
               product_id = COALESCE(EXCLUDED.product_id, subscriptions.product_id),
@@ -147,8 +172,30 @@ module.exports = async (req, res) => {
               raw_event = EXCLUDED.raw_event,
               updated_at = NOW()
           `,
-          [dedupeKey, customerEmail, customerId, productId, plan, 'active', checkoutId, sourceEventId, event]
+          [
+            shopDomain ? `${shopDomain}:${resolvedProductId || resolvedPlan || 'unknown'}` : dedupeKey,
+            shopDomain,
+            checkoutSession?.request_id || requestId,
+            customerEmail,
+            customerId,
+            resolvedProductId,
+            resolvedPlan,
+            'active',
+            checkoutId,
+            sourceEventId,
+            event,
+          ]
         );
+        if (checkoutSession) {
+          await client.query(
+            `
+              UPDATE checkout_sessions
+              SET status = 'active', updated_at = NOW()
+              WHERE request_id = $1
+            `,
+            [checkoutSession.request_id]
+          );
+        }
       }
 
       await client.query('COMMIT');

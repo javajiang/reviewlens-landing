@@ -45,6 +45,8 @@ async function ensureSchema() {
         CREATE TABLE IF NOT EXISTS subscriptions (
           id BIGSERIAL PRIMARY KEY,
           dedupe_key TEXT UNIQUE NOT NULL,
+          shop_domain TEXT,
+          request_id TEXT,
           customer_email TEXT,
           customer_id TEXT,
           product_id TEXT,
@@ -56,6 +58,35 @@ async function ensureSchema() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
+      `);
+      await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS shop_domain TEXT
+      `);
+      await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS request_id TEXT
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS subscriptions_shop_domain_idx
+        ON subscriptions (shop_domain)
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS checkout_sessions (
+          id BIGSERIAL PRIMARY KEY,
+          request_id TEXT UNIQUE NOT NULL,
+          shop_domain TEXT NOT NULL,
+          plan TEXT NOT NULL,
+          product_id TEXT,
+          checkout_id TEXT UNIQUE,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS checkout_sessions_shop_domain_idx
+        ON checkout_sessions (shop_domain)
       `);
     } finally {
       client.release();

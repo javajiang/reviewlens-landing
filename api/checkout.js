@@ -1,4 +1,6 @@
 const { URL } = require('url');
+const { getPool, ensureSchema } = require('./_db');
+const { ensureShopifySchema, normalizeShopDomain } = require('./_shopify');
 
 function getBaseUrl(req) {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
@@ -29,6 +31,10 @@ function getProductId(plan) {
   return process.env.CREEM_BASIC_PRODUCT_ID;
 }
 
+function isValidShop(shop) {
+  return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop);
+}
+
 module.exports = async (req, res) => {
   try {
     if (req.method !== 'GET') {
@@ -39,7 +45,29 @@ module.exports = async (req, res) => {
 
     const parsed = new URL(req.url, getBaseUrl(req));
     const plan = parsed.searchParams.get('plan') === 'pro' ? 'pro' : 'basic';
+    const shop = normalizeShopDomain(parsed.searchParams.get('shop'));
     const productId = getProductId(plan);
+
+    if (!shop || !isValidShop(shop)) {
+      res.status(400).json({ ok: false, error: 'A valid Shopify shop is required' });
+      return;
+    }
+
+    await ensureShopifySchema();
+    await ensureSchema();
+    const client = await getPool().connect();
+    try {
+      const installation = await client.query(
+        'SELECT shop_domain FROM shopify_installations WHERE shop_domain = $1 LIMIT 1',
+        [shop]
+      );
+      if (!installation.rows[0]) {
+        res.status(403).json({ ok: false, authorized: false, error: 'Shop is not authorized' });
+        return;
+      }
+    } finally {
+      client.release();
+    }
 
     if (!process.env.CREEM_API_KEY) {
       res.status(500).json({ ok: false, error: 'CREEM_API_KEY is not set' });
@@ -51,11 +79,25 @@ module.exports = async (req, res) => {
       return;
     }
 
+    const requestId = `reviewlens-${plan}-${shop}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const payload = {
       product_id: productId,
-      request_id: `reviewlens-${plan}-${Date.now()}`,
+      request_id: requestId,
       success_url: `${getBaseUrl(req)}/success.html?plan=${plan}`,
     };
+
+    const sessionClient = await getPool().connect();
+    try {
+      await sessionClient.query(
+        `
+          INSERT INTO checkout_sessions (request_id, shop_domain, plan, product_id)
+          VALUES ($1, $2, $3, $4)
+        `,
+        [requestId, shop, plan, productId]
+      );
+    } finally {
+      sessionClient.release();
+    }
 
     const response = await fetch(`${getCreemBaseUrl()}/v1/checkouts`, {
       method: 'POST',
@@ -98,6 +140,29 @@ module.exports = async (req, res) => {
         details: data,
       });
       return;
+    }
+
+    const checkoutId =
+      data.id ||
+      data.checkout_id ||
+      data.checkoutId ||
+      data.data?.id ||
+      data.data?.checkout_id ||
+      data.data?.checkoutId;
+    if (checkoutId) {
+      const updateClient = await getPool().connect();
+      try {
+        await updateClient.query(
+          `
+            UPDATE checkout_sessions
+            SET checkout_id = $2, updated_at = NOW()
+            WHERE request_id = $1
+          `,
+          [requestId, String(checkoutId)]
+        );
+      } finally {
+        updateClient.release();
+      }
     }
 
     res.writeHead(302, { Location: checkoutUrl });
