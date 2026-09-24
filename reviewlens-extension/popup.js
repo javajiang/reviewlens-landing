@@ -44,7 +44,7 @@ unlockButton.addEventListener("click", async () => {
     return;
   }
 
-  const checkoutUrl = `${APP_BASE_URL}/api/checkout?plan=basic&shop=${encodeURIComponent(shopDomain)}`;
+  const checkoutUrl = `${APP_BASE_URL}/api/checkout?plan=pro&shop=${encodeURIComponent(shopDomain)}`;
   await chrome.tabs.create({ url: checkoutUrl, active: true });
 });
 
