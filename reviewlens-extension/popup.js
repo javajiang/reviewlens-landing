@@ -471,7 +471,7 @@ async function refreshAccessStatus() {
 
   try {
     const response = await fetchJson(
-      `${APP_BASE_URL}/api/analysis/access?shop=${encodeURIComponent(shopDomain)}`
+      `${APP_BASE_URL}/api/analysis?shop=${encodeURIComponent(shopDomain)}`
     );
     const data = response.data;
     if (!response.ok || !data?.ok) throw new Error(data?.error || "Access status failed.");
