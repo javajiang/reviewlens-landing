@@ -83,7 +83,7 @@ module.exports = async (req, res) => {
     const payload = {
       product_id: productId,
       request_id: requestId,
-      success_url: `${getBaseUrl(req)}/success.html?plan=${plan}`,
+      success_url: `${getBaseUrl(req)}/payment-success.html?plan=${encodeURIComponent(plan)}&shop=${encodeURIComponent(shop)}`,
     };
 
     const sessionClient = await getPool().connect();
