@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sign in to ReviewLens</title>
+    <title>Sign in | ReviewLens</title>
     <style>
       :root { color-scheme: dark; --bg: #08101e; --panel: #121d31; --line: rgba(255,255,255,.14); --text: #f5f7fb; --muted: #aab4c5; --accent: #7be7ff; }
       * { box-sizing: border-box; }
@@ -20,18 +20,27 @@
       #status { min-height: 24px; margin-top: 16px; font-size: 14px; }
       .error { color: #ff9c91; }
       .success { color: #8ae9ae; }
+      .account { display: none; }
+      .account.visible { display: block; }
+      .account-email { margin: 18px 0; color: var(--accent); font-weight: 700; word-break: break-word; }
+      .secondary { background: transparent; border: 1px solid var(--line); color: var(--text); }
     </style>
   </head>
   <body>
     <main>
       <div class="eyebrow">ReviewLens account</div>
-      <h1>Sign in to unlock AI analysis.</h1>
-      <p>Enter your email and we will send you a one-time sign-in link. Free review scraping does not require an account.</p>
+      <h1>Sign in</h1>
+      <p id="intro">Enter your email to receive a one-time sign-in link.</p>
       <form id="login-form">
         <label for="email">Email address</label>
         <input id="email" type="email" autocomplete="email" required placeholder="you@example.com" />
         <button id="submit" type="submit">Email me a sign-in link</button>
       </form>
+      <section id="account" class="account">
+        <p>You are signed in as:</p>
+        <div id="account-email" class="account-email"></div>
+        <button id="sign-out" class="secondary" type="button">Sign out</button>
+      </section>
       <div id="status"></div>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -39,6 +48,7 @@
       const APP_BASE_URL = window.location.origin;
       const params = new URLSearchParams(window.location.search);
       const extensionId = params.get("extension_id") || "";
+      const isExtensionFlow = Boolean(extensionId);
       const callbackUrl = new URL("/auth-callback.html", APP_BASE_URL);
       localStorage.setItem("reviewlens_login_context", JSON.stringify({
         extensionId,
@@ -49,6 +59,10 @@
       const form = document.getElementById("login-form");
       const button = document.getElementById("submit");
       const status = document.getElementById("status");
+      const intro = document.getElementById("intro");
+      const account = document.getElementById("account");
+      const accountEmail = document.getElementById("account-email");
+      const signOutButton = document.getElementById("sign-out");
 
       function show(message, kind) {
         status.textContent = message;
@@ -75,11 +89,22 @@
         const client = await loadClient();
         const { data } = await client.auth.getSession();
         if (!data.session) return;
-        show("You are already signed in. Continuing...");
-        window.location.replace(callbackUrl.toString());
+        if (isExtensionFlow) {
+          show("You are already signed in. Continuing...");
+          window.location.replace(callbackUrl.toString());
+          return;
+        }
+        showAccount(data.session.user);
       }
 
       continueExistingSession().catch(() => {});
+
+      function showAccount(user) {
+        form.style.display = "none";
+        intro.style.display = "none";
+        account.classList.add("visible");
+        accountEmail.textContent = user?.email || "Signed-in account";
+      }
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -96,6 +121,18 @@
         } catch (error) {
           show(error?.message || String(error), "error");
           button.disabled = false;
+        }
+      });
+
+      signOutButton.addEventListener("click", async () => {
+        signOutButton.disabled = true;
+        try {
+          const client = await loadClient();
+          await client.auth.signOut();
+          window.location.reload();
+        } catch (error) {
+          show(error?.message || String(error), "error");
+          signOutButton.disabled = false;
         }
       });
     </script>

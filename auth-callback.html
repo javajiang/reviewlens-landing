@@ -43,9 +43,9 @@
         if (!data.session) throw new Error("No valid sign-in session was found. Please start again.");
 
         if (!context.extensionId) {
-          message.textContent = "You are signed in to ReviewLens. You can return to the product page and use the extension.";
-          message.style.color = "#8ae9ae";
           localStorage.removeItem("reviewlens_login_context");
+          const target = new URL("/login.html?signed_in=1", window.location.origin);
+          window.location.replace(target.toString());
           return;
         }
 
