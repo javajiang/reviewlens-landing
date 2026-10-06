@@ -24,18 +24,19 @@
       .account.visible { display: block; }
       .account-email { margin: 18px 0; color: var(--accent); font-weight: 700; word-break: break-word; }
       .secondary { background: transparent; border: 1px solid var(--line); color: var(--text); }
+      .google-button { display: flex; align-items: center; justify-content: center; gap: 10px; }
+      .google-mark { width: 20px; height: 20px; border-radius: 50%; background: #fff; color: #4285f4; font-weight: 900; display: inline-grid; place-items: center; font-size: 14px; }
     </style>
   </head>
   <body>
     <main>
       <div class="eyebrow">ReviewLens account</div>
       <h1>Sign in</h1>
-      <p id="intro">Enter your email to receive a one-time sign-in link.</p>
-      <form id="login-form">
-        <label for="email">Email address</label>
-        <input id="email" type="email" autocomplete="email" required placeholder="you@example.com" />
-        <button id="submit" type="submit">Email me a sign-in link</button>
-      </form>
+      <p id="intro">Sign in securely with your Google account.</p>
+      <button id="google-sign-in" class="google-button" type="button">
+        <span class="google-mark">G</span>
+        Continue with Google
+      </button>
       <section id="account" class="account">
         <p>You are signed in as:</p>
         <div id="account-email" class="account-email"></div>
@@ -56,8 +57,7 @@
         handle: params.get("handle") || "",
       }));
 
-      const form = document.getElementById("login-form");
-      const button = document.getElementById("submit");
+      const googleButton = document.getElementById("google-sign-in");
       const status = document.getElementById("status");
       const intro = document.getElementById("intro");
       const account = document.getElementById("account");
@@ -100,27 +100,28 @@
       continueExistingSession().catch(() => {});
 
       function showAccount(user) {
-        form.style.display = "none";
+        googleButton.style.display = "none";
         intro.style.display = "none";
         account.classList.add("visible");
         accountEmail.textContent = user?.email || "Signed-in account";
       }
 
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        button.disabled = true;
-        show("Sending the sign-in link...");
+      googleButton.addEventListener("click", async () => {
+        googleButton.disabled = true;
+        show("Opening Google sign-in...");
         try {
           const client = await loadClient();
-          const { error } = await client.auth.signInWithOtp({
-            email: document.getElementById("email").value.trim(),
-            options: { emailRedirectTo: callbackUrl.toString(), shouldCreateUser: true },
+          const { error } = await client.auth.signInWithOAuth({
+            provider: "google",
+            options: {
+              redirectTo: callbackUrl.toString(),
+              queryParams: { access_type: "offline", prompt: "select_account" },
+            },
           });
           if (error) throw error;
-          show("Check your email and click the sign-in link. You can close this tab after the extension opens.", "success");
         } catch (error) {
           show(error?.message || String(error), "error");
-          button.disabled = false;
+          googleButton.disabled = false;
         }
       });
 
