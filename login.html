@@ -61,7 +61,14 @@
         if (!response.ok || !data.ok || !data.supabase?.url || !data.supabase?.publishableKey) {
           throw new Error("Supabase login is not configured on this deployment.");
         }
-        return window.supabase.createClient(data.supabase.url, data.supabase.publishableKey);
+        return window.supabase.createClient(data.supabase.url, data.supabase.publishableKey, {
+          auth: {
+            flowType: "implicit",
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+          },
+        });
       }
 
       form.addEventListener("submit", async (event) => {
