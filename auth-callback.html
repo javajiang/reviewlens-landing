@@ -44,7 +44,7 @@
 
         if (!context.extensionId) {
           localStorage.removeItem("reviewlens_login_context");
-          const target = new URL("/login.html?signed_in=1", window.location.origin);
+          const target = new URL("/", window.location.origin);
           window.location.replace(target.toString());
           return;
         }
