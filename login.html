@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in to ReviewLens</title>
+    <style>
+      :root { color-scheme: dark; --bg: #08101e; --panel: #121d31; --line: rgba(255,255,255,.14); --text: #f5f7fb; --muted: #aab4c5; --accent: #7be7ff; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; color: var(--text); background: radial-gradient(circle at top, #24345c, var(--bg) 55%); font: 16px/1.5 system-ui, sans-serif; }
+      main { width: min(100%, 440px); padding: 30px; border: 1px solid var(--line); border-radius: 24px; background: rgba(18,29,49,.9); box-shadow: 0 24px 80px rgba(0,0,0,.3); }
+      .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .12em; font-size: 12px; font-weight: 700; }
+      h1 { margin: 10px 0 8px; font-size: 32px; line-height: 1.05; }
+      p { color: var(--muted); }
+      label { display: block; margin: 22px 0 8px; color: var(--muted); font-size: 13px; }
+      input, button { width: 100%; border-radius: 12px; padding: 13px 14px; font: inherit; }
+      input { border: 1px solid var(--line); background: #0b1424; color: var(--text); }
+      button { margin-top: 12px; border: 0; background: linear-gradient(135deg, #7be7ff, #7c83ff); color: #07101e; font-weight: 800; cursor: pointer; }
+      button:disabled { opacity: .55; cursor: wait; }
+      #status { min-height: 24px; margin-top: 16px; font-size: 14px; }
+      .error { color: #ff9c91; }
+      .success { color: #8ae9ae; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="eyebrow">ReviewLens account</div>
+      <h1>Sign in to unlock AI analysis.</h1>
+      <p>Enter your email and we will send you a one-time sign-in link. Free review scraping does not require an account.</p>
+      <form id="login-form">
+        <label for="email">Email address</label>
+        <input id="email" type="email" autocomplete="email" required placeholder="you@example.com" />
+        <button id="submit" type="submit">Email me a sign-in link</button>
+      </form>
+      <div id="status"></div>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+      const APP_BASE_URL = window.location.origin;
+      const params = new URLSearchParams(window.location.search);
+      const extensionId = params.get("extension_id") || "";
+      const callbackUrl = new URL("/auth-callback.html", APP_BASE_URL);
+      localStorage.setItem("reviewlens_login_context", JSON.stringify({
+        extensionId,
+        shop: params.get("shop") || "",
+        handle: params.get("handle") || "",
+      }));
+
+      const form = document.getElementById("login-form");
+      const button = document.getElementById("submit");
+      const status = document.getElementById("status");
+
+      function show(message, kind) {
+        status.textContent = message;
+        status.className = kind || "";
+      }
+
+      async function loadClient() {
+        const response = await fetch("/api/health?config=supabase");
+        const data = await response.json();
+        if (!response.ok || !data.ok || !data.supabase?.url || !data.supabase?.publishableKey) {
+          throw new Error("Supabase login is not configured on this deployment.");
+        }
+        return window.supabase.createClient(data.supabase.url, data.supabase.publishableKey);
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        button.disabled = true;
+        show("Sending the sign-in link...");
+        try {
+          const client = await loadClient();
+          const { error } = await client.auth.signInWithOtp({
+            email: document.getElementById("email").value.trim(),
+            options: { emailRedirectTo: callbackUrl.toString(), shouldCreateUser: true },
+          });
+          if (error) throw error;
+          show("Check your email and click the sign-in link. You can close this tab after the extension opens.", "success");
+        } catch (error) {
+          show(error?.message || String(error), "error");
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

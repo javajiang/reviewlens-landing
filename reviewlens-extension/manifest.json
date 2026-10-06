@@ -19,5 +19,11 @@
       "run_at": "document_start",
       "all_frames": true
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["auth-callback.html", "auth-callback.js"],
+      "matches": ["<all_urls>"]
+    }
   ]
 }

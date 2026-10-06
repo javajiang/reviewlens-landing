@@ -1,6 +1,7 @@
 const { URL } = require('url');
 const { getPool, ensureSchema } = require('./_db');
 const { ensureShopifySchema, normalizeShopDomain } = require('./_shopify');
+const { getUserFromRequest } = require('./_auth');
 
 function getBaseUrl(req) {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
@@ -37,16 +38,25 @@ function isValidShop(shop) {
 
 module.exports = async (req, res) => {
   try {
-    if (req.method !== 'GET') {
-      res.setHeader('Allow', 'GET');
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      res.setHeader('Allow', 'GET, POST');
       res.status(405).json({ ok: false, error: 'Method not allowed' });
       return;
     }
 
     const parsed = new URL(req.url, getBaseUrl(req));
-    const plan = parsed.searchParams.get('plan') === 'pro' ? 'pro' : 'basic';
-    const shop = normalizeShopDomain(parsed.searchParams.get('shop'));
+    const body = req.method === 'POST' && req.body && typeof req.body === 'object'
+      ? req.body
+      : {};
+    const plan = (parsed.searchParams.get('plan') || body.plan) === 'pro' ? 'pro' : 'basic';
+    const shop = normalizeShopDomain(parsed.searchParams.get('shop') || body.shop);
     const productId = getProductId(plan);
+    const user = await getUserFromRequest(req);
+
+    if (!user) {
+      res.status(401).json({ ok: false, authenticated: false, error: 'Login is required before checkout' });
+      return;
+    }
 
     if (!shop || !isValidShop(shop)) {
       res.status(400).json({ ok: false, error: 'A valid Shopify shop is required' });
@@ -83,6 +93,11 @@ module.exports = async (req, res) => {
     const payload = {
       product_id: productId,
       request_id: requestId,
+      metadata: {
+        request_id: requestId,
+        user_id: user.id,
+        shop_domain: shop,
+      },
       success_url: `${getBaseUrl(req)}/payment-success.html?plan=${encodeURIComponent(plan)}&shop=${encodeURIComponent(shop)}`,
     };
 
@@ -90,10 +105,10 @@ module.exports = async (req, res) => {
     try {
       await sessionClient.query(
         `
-          INSERT INTO checkout_sessions (request_id, shop_domain, plan, product_id)
-          VALUES ($1, $2, $3, $4)
+          INSERT INTO checkout_sessions (request_id, shop_domain, user_id, plan, product_id)
+          VALUES ($1, $2, $3, $4, $5)
         `,
-        [requestId, shop, plan, productId]
+        [requestId, shop, user.id, plan, productId]
       );
     } finally {
       sessionClient.release();
@@ -165,8 +180,18 @@ module.exports = async (req, res) => {
       }
     }
 
-    res.writeHead(302, { Location: checkoutUrl });
-    res.end();
+    if (req.method === 'GET') {
+      res.writeHead(302, { Location: checkoutUrl });
+      res.end();
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      checkout_url: checkoutUrl,
+      request_id: requestId,
+      plan,
+    });
   } catch (error) {
     res.status(500).json({
       ok: false,

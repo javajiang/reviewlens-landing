@@ -6,6 +6,7 @@ const state = {
   activeTab: "negative",
   context: null,
   auth: null,
+  user: null,
   billing: null,
   product: null,
   hasResults: false,
@@ -14,6 +15,7 @@ const state = {
 const STORAGE_KEY = "reviewlens_popup_state";
 const TARGET_URL_KEY = "reviewlens_target_url";
 const AUTH_KEY = "reviewlens_auth_state";
+const USER_KEY = "reviewlens_user_session";
 const PRODUCT_KEY = "reviewlens_product_state";
 
 const urlInput = document.getElementById("url");
@@ -44,8 +46,38 @@ unlockButton.addEventListener("click", async () => {
     return;
   }
 
-  const checkoutUrl = `${APP_BASE_URL}/api/checkout?plan=pro&shop=${encodeURIComponent(shopDomain)}`;
-  await chrome.tabs.create({ url: checkoutUrl, active: true });
+  if (!hasUsableUserSession()) {
+    const loginUrl = new URL(`${APP_BASE_URL}/login.html`);
+    loginUrl.searchParams.set("extension_id", chrome.runtime.id);
+    loginUrl.searchParams.set("shop", shopDomain);
+    const handle = productHandleFromUrl(state.targetUrl);
+    if (handle) loginUrl.searchParams.set("handle", handle);
+    setStatus("Opening the ReviewLens sign-in page...");
+    await chrome.tabs.create({ url: loginUrl.toString(), active: true });
+    return;
+  }
+
+  unlockButton.disabled = true;
+  setStatus("Creating secure checkout...");
+  try {
+    const response = await postJson(
+      `${APP_BASE_URL}/api/checkout?plan=pro&shop=${encodeURIComponent(shopDomain)}`,
+      {},
+      { Authorization: `Bearer ${state.user.accessToken}` }
+    );
+    if (!response.ok || !response.data?.ok || !response.data?.checkout_url) {
+      if (response.status === 401) {
+        await clearUserSession();
+        throw new Error("Your login session expired. Click Unlock Full Analysis again to sign in.");
+      }
+      throw new Error(response.data?.error || "Unable to create checkout.");
+    }
+    await chrome.tabs.create({ url: response.data.checkout_url, active: true });
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    unlockButton.disabled = false;
+  }
 });
 
 bootstrap().catch((error) => {
@@ -154,6 +186,7 @@ async function bootstrap() {
   await restoreState();
   await restoreTargetUrl();
   await restoreAuthState();
+  await restoreUserSession();
   await restoreProductState();
   const tab = await getCurrentTab();
   if (state.targetUrl) {
@@ -242,6 +275,30 @@ async function restoreAuthState() {
     const stored = await chrome.storage.local.get(AUTH_KEY);
     state.auth = stored?.[AUTH_KEY] || null;
   } catch (_) {}
+}
+
+async function restoreUserSession() {
+  try {
+    const stored = await chrome.storage.local.get(USER_KEY);
+    state.user = stored?.[USER_KEY] || null;
+    if (!hasUsableUserSession()) await clearUserSession();
+  } catch (_) {
+    state.user = null;
+  }
+}
+
+async function clearUserSession() {
+  state.user = null;
+  try {
+    await chrome.storage.local.remove(USER_KEY);
+  } catch (_) {}
+}
+
+function hasUsableUserSession() {
+  return Boolean(
+    state.user?.accessToken &&
+    (!state.user.expiresAt || Number(state.user.expiresAt) > Date.now() + 30000)
+  );
 }
 
 async function persistAuthState() {
@@ -464,14 +521,15 @@ async function refreshProductInfo() {
 
 async function refreshAccessStatus() {
   const shopDomain = state.context?.shopDomain || state.auth?.shopDomain || inferShopDomainFromUrl(state.targetUrl);
-  if (!shopDomain || !state.auth?.authorized) {
+  if (!shopDomain || !state.auth?.authorized || !hasUsableUserSession()) {
     state.billing = null;
     return;
   }
 
   try {
     const response = await fetchJson(
-      `${APP_BASE_URL}/api/analysis?shop=${encodeURIComponent(shopDomain)}`
+      `${APP_BASE_URL}/api/analysis?shop=${encodeURIComponent(shopDomain)}`,
+      { Authorization: `Bearer ${state.user.accessToken}` }
     );
     const data = response.data;
     if (!response.ok || !data?.ok) throw new Error(data?.error || "Access status failed.");
@@ -481,7 +539,8 @@ async function refreshAccessStatus() {
       plan: data.plan || null,
       updatedAt: data.updatedAt || null,
     };
-  } catch (_) {
+  } catch (error) {
+    if (error?.status === 401) await clearUserSession();
     state.billing = {
       shopDomain,
       paid: false,
@@ -507,10 +566,11 @@ function renderProductState(product) {
   productMetaEl.textContent = parts.length ? parts.join(" • ") : "Product metadata loaded.";
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, headers = {}) {
   const response = await chrome.runtime.sendMessage({
     type: "REVIEWLENS_FETCH_JSON",
     url,
+    headers,
   });
 
   if (!response?.ok) {
@@ -520,12 +580,13 @@ async function fetchJson(url) {
   return response.result;
 }
 
-async function postJson(url, body) {
+async function postJson(url, body, headers = {}) {
   const response = await chrome.runtime.sendMessage({
     type: "REVIEWLENS_FETCH_JSON",
     url,
     method: "POST",
     body,
+    headers,
   });
 
   if (!response?.ok) {

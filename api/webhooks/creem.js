@@ -141,7 +141,7 @@ module.exports = async (req, res) => {
         );
         const session = await client.query(
           `
-            SELECT request_id, shop_domain, plan, product_id
+            SELECT request_id, shop_domain, user_id, plan, product_id
             FROM checkout_sessions
             WHERE checkout_id = $1
                OR request_id = $2
@@ -152,15 +152,17 @@ module.exports = async (req, res) => {
         );
         const checkoutSession = session.rows[0] || null;
         const shopDomain = checkoutSession?.shop_domain || null;
+        const userId = checkoutSession?.user_id || null;
         const resolvedPlan = plan || checkoutSession?.plan || null;
         const resolvedProductId = productId || checkoutSession?.product_id || null;
         await client.query(
           `
             INSERT INTO subscriptions (
-              dedupe_key, shop_domain, request_id, customer_email, customer_id, product_id, plan, status, checkout_id, source_event_id, raw_event
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+              dedupe_key, shop_domain, user_id, request_id, customer_email, customer_id, product_id, plan, status, checkout_id, source_event_id, raw_event
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (dedupe_key) DO UPDATE SET
               shop_domain = COALESCE(EXCLUDED.shop_domain, subscriptions.shop_domain),
+              user_id = COALESCE(EXCLUDED.user_id, subscriptions.user_id),
               request_id = COALESCE(EXCLUDED.request_id, subscriptions.request_id),
               customer_email = COALESCE(EXCLUDED.customer_email, subscriptions.customer_email),
               customer_id = COALESCE(EXCLUDED.customer_id, subscriptions.customer_id),
@@ -173,8 +175,11 @@ module.exports = async (req, res) => {
               updated_at = NOW()
           `,
           [
-            shopDomain ? `${shopDomain}:${resolvedProductId || resolvedPlan || 'unknown'}` : dedupeKey,
+            userId
+              ? `${userId}:${resolvedProductId || resolvedPlan || 'unknown'}`
+              : (shopDomain ? `${shopDomain}:${resolvedProductId || resolvedPlan || 'unknown'}` : dedupeKey),
             shopDomain,
+            userId,
             checkoutSession?.request_id || requestId,
             customerEmail,
             customerId,

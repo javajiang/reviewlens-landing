@@ -68,14 +68,23 @@ async function ensureSchema() {
         ADD COLUMN IF NOT EXISTS request_id TEXT
       `);
       await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS user_id TEXT
+      `);
+      await client.query(`
         CREATE INDEX IF NOT EXISTS subscriptions_shop_domain_idx
         ON subscriptions (shop_domain)
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS subscriptions_user_id_idx
+        ON subscriptions (user_id)
       `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS checkout_sessions (
           id BIGSERIAL PRIMARY KEY,
           request_id TEXT UNIQUE NOT NULL,
           shop_domain TEXT NOT NULL,
+          user_id TEXT,
           plan TEXT NOT NULL,
           product_id TEXT,
           checkout_id TEXT UNIQUE,
@@ -87,6 +96,14 @@ async function ensureSchema() {
       await client.query(`
         CREATE INDEX IF NOT EXISTS checkout_sessions_shop_domain_idx
         ON checkout_sessions (shop_domain)
+      `);
+      await client.query(`
+        ALTER TABLE checkout_sessions
+        ADD COLUMN IF NOT EXISTS user_id TEXT
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS checkout_sessions_user_id_idx
+        ON checkout_sessions (user_id)
       `);
     } finally {
       client.release();

@@ -1,5 +1,6 @@
 const { ensureSchema, getPool } = require('./_db');
 const { ensureShopifySchema, normalizeShopDomain } = require('./_shopify');
+const { getUserFromRequest } = require('./_auth');
 
 function isValidShop(shop) {
   return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop);
@@ -14,7 +15,7 @@ function getShop(req) {
   );
 }
 
-async function getAccessStatus(shop) {
+async function getAccessStatus(shop, userId) {
   await ensureShopifySchema();
   await ensureSchema();
   const client = await getPool().connect();
@@ -33,11 +34,12 @@ async function getAccessStatus(shop) {
         SELECT plan, status, updated_at
         FROM subscriptions
         WHERE shop_domain = $1
+          AND user_id = $2
           AND status = 'active'
         ORDER BY updated_at DESC
         LIMIT 1
       `,
-      [shop]
+      [shop, userId]
     );
     const subscription = result.rows[0] || null;
     return {
@@ -60,13 +62,23 @@ module.exports = async (req, res) => {
     }
 
     if (req.method === 'GET') {
-      const access = await getAccessStatus(shop);
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ ok: false, authenticated: false, error: 'Login is required' });
+        return;
+      }
+      const access = await getAccessStatus(shop, user.id);
       res.status(200).json({ ok: true, ...access });
       return;
     }
 
     if (req.method === 'POST') {
-      const access = await getAccessStatus(shop);
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ ok: false, authenticated: false, error: 'Login is required' });
+        return;
+      }
+      const access = await getAccessStatus(shop, user.id);
       if (!access.authorized) {
         res.status(403).json({
           ok: false,
