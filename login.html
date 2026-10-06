@@ -64,12 +64,22 @@
         return window.supabase.createClient(data.supabase.url, data.supabase.publishableKey, {
           auth: {
             flowType: "implicit",
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false,
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
           },
         });
       }
+
+      async function continueExistingSession() {
+        const client = await loadClient();
+        const { data } = await client.auth.getSession();
+        if (!data.session) return;
+        show("You are already signed in. Continuing...");
+        window.location.replace(callbackUrl.toString());
+      }
+
+      continueExistingSession().catch(() => {});
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
