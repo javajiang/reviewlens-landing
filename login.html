@@ -24,6 +24,8 @@
       .account.visible { display: block; }
       .account-email { margin: 18px 0; color: var(--accent); font-weight: 700; word-break: break-word; }
       .secondary { background: transparent; border: 1px solid var(--line); color: var(--text); }
+      .continue-checkout { display: none; }
+      .continue-checkout.visible { display: block; }
       .google-button { display: flex; align-items: center; justify-content: center; gap: 10px; }
       .google-mark { width: 20px; height: 20px; border-radius: 50%; background: #fff; color: #4285f4; font-weight: 900; display: inline-grid; place-items: center; font-size: 14px; }
     </style>
@@ -40,6 +42,7 @@
       <section id="account" class="account">
         <p>You are signed in as:</p>
         <div id="account-email" class="account-email"></div>
+        <button id="continue-checkout" class="continue-checkout" type="button">Continue to checkout</button>
         <button id="sign-out" class="secondary" type="button">Sign out</button>
       </section>
       <div id="status"></div>
@@ -64,6 +67,7 @@
       const intro = document.getElementById("intro");
       const account = document.getElementById("account");
       const accountEmail = document.getElementById("account-email");
+      const continueCheckoutButton = document.getElementById("continue-checkout");
       const signOutButton = document.getElementById("sign-out");
 
       function show(message, kind) {
@@ -97,8 +101,8 @@
           return;
         }
         if (next === "checkout") {
-          localStorage.removeItem("reviewlens_login_context");
-          window.location.replace("/?checkout=pro");
+          showAccount(data.session.user);
+          continueCheckoutButton.classList.add("visible");
           return;
         }
         showAccount(data.session.user);
@@ -112,6 +116,11 @@
         account.classList.add("visible");
         accountEmail.textContent = user?.email || "Signed-in account";
       }
+
+      continueCheckoutButton.addEventListener("click", () => {
+        localStorage.removeItem("reviewlens_login_context");
+        window.location.replace("/?checkout=pro");
+      });
 
       googleButton.addEventListener("click", async () => {
         googleButton.disabled = true;
