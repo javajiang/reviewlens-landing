@@ -1,6 +1,8 @@
 const { ensureSchema, getPool } = require('./_db');
 const { ensureShopifySchema, normalizeShopDomain } = require('./_shopify');
 const { getUserFromRequest } = require('./_auth');
+const { buildReviewStats, prepareReviewsForAnalysis } = require('./_analysis');
+const { handleFromUrl, normalizeHandle } = require('./reviews/_shared');
 
 function isValidShop(shop) {
   return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop);
@@ -102,13 +104,79 @@ module.exports = async (req, res) => {
         return;
       }
 
-      res.status(501).json({
-        ok: false,
-        authorized: true,
-        paid: true,
-        plan: access.plan,
-        error: 'AI analysis is not enabled yet',
-      });
+      const productHandle = normalizeHandle(
+        req.body?.handle ||
+        req.body?.productHandle ||
+        handleFromUrl(req.body?.productUrl || req.body?.url)
+      );
+      if (!productHandle) {
+        res.status(400).json({
+          ok: false,
+          authorized: true,
+          paid: Boolean(access.paid),
+          error: 'Product handle is required for AI analysis',
+        });
+        return;
+      }
+
+      const client = await getPool().connect();
+      try {
+        const result = await client.query(
+          `
+            SELECT
+              product_title,
+              product_description,
+              reviews,
+              review_count,
+              analysis_status,
+              analysis_result,
+              analysis_model,
+              analysis_updated_at
+            FROM review_data
+            WHERE shop_domain = $1
+              AND product_handle = $2
+            LIMIT 1
+          `,
+          [shop, productHandle]
+        );
+        const row = result.rows[0] || null;
+        if (!row) {
+          res.status(404).json({
+            ok: false,
+            authorized: true,
+            paid: true,
+            error: 'No saved reviews found for this product',
+          });
+          return;
+        }
+
+        const reviews = Array.isArray(row.reviews) ? row.reviews : [];
+        const selectedReviews = prepareReviewsForAnalysis(reviews);
+        res.status(501).json({
+          ok: false,
+          authorized: true,
+          paid: true,
+          plan: access.plan,
+          analysisStatus: row.analysis_status,
+          analysisResult: row.analysis_result,
+          analysisModel: row.analysis_model,
+          analysisUpdatedAt: row.analysis_updated_at,
+          input: {
+            product: {
+              title: row.product_title,
+              description: row.product_description,
+            },
+            reviewStats: {
+              totalReviews: reviews.length,
+              ratingDistribution: buildReviewStats(reviews),
+            },
+            selectedReviewCount: selectedReviews.length,
+          },
+          error: 'AI analysis is not enabled yet',
+        });
+      } finally {
+        client.release();
+      }
       return;
     }
 

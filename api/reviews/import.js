@@ -76,6 +76,10 @@ module.exports = async (req, res) => {
             review_count = EXCLUDED.review_count,
             source = EXCLUDED.source,
             scrape_status = EXCLUDED.scrape_status,
+            analysis_status = 'not_started',
+            analysis_result = NULL,
+            analysis_model = NULL,
+            analysis_updated_at = NULL,
             scraped_at = EXCLUDED.scraped_at,
             updated_at = NOW()
           RETURNING id, scraped_at, updated_at

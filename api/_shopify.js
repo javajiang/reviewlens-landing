@@ -222,9 +222,29 @@ async function ensureShopifySchema() {
         source TEXT,
         scrape_status TEXT NOT NULL DEFAULT 'completed',
         scraped_at TIMESTAMPTZ,
+        analysis_status TEXT NOT NULL DEFAULT 'not_started',
+        analysis_result JSONB,
+        analysis_model TEXT,
+        analysis_updated_at TIMESTAMPTZ,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE (shop_domain, product_handle)
       )
+    `);
+    await client.query(`
+      ALTER TABLE review_data
+      ADD COLUMN IF NOT EXISTS analysis_status TEXT NOT NULL DEFAULT 'not_started'
+    `);
+    await client.query(`
+      ALTER TABLE review_data
+      ADD COLUMN IF NOT EXISTS analysis_result JSONB
+    `);
+    await client.query(`
+      ALTER TABLE review_data
+      ADD COLUMN IF NOT EXISTS analysis_model TEXT
+    `);
+    await client.query(`
+      ALTER TABLE review_data
+      ADD COLUMN IF NOT EXISTS analysis_updated_at TIMESTAMPTZ
     `);
     await client.query(`
       CREATE INDEX IF NOT EXISTS review_data_shop_domain_idx

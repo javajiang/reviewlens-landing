@@ -52,6 +52,10 @@ module.exports = async (req, res) => {
             source,
             scrape_status,
             scraped_at,
+            analysis_status,
+            analysis_result,
+            analysis_model,
+            analysis_updated_at,
             updated_at
           FROM review_data
           WHERE shop_domain = $1
@@ -85,6 +89,10 @@ module.exports = async (req, res) => {
         source: row.source,
         scrapeStatus: row.scrape_status,
         scrapedAt: row.scraped_at,
+        analysisStatus: row.analysis_status,
+        analysisResult: row.analysis_result,
+        analysisModel: row.analysis_model,
+        analysisUpdatedAt: row.analysis_updated_at,
         updatedAt: row.updated_at,
       });
     } finally {
