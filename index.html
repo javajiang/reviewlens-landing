@@ -361,8 +361,8 @@
 
     async function startProCheckout() {
       const client = await loadSupabaseClient();
-      const { data } = await client.auth.getSession();
-      const session = data.session;
+      const { data: sessionData } = await client.auth.getSession();
+      const session = sessionData.session;
       if (!session) {
         window.location.href = "login.html?next=checkout";
         return;
@@ -382,11 +382,11 @@
         },
         body: JSON.stringify({ plan: "pro" }),
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.ok || !data.checkout_url) {
-        throw new Error(data.error || "Unable to open checkout.");
+      const checkoutData = await response.json().catch(() => ({}));
+      if (!response.ok || !checkoutData.ok || !checkoutData.checkout_url) {
+        throw new Error(checkoutData.error || "Unable to open checkout.");
       }
-      window.location.href = data.checkout_url;
+      window.location.href = checkoutData.checkout_url;
     }
 
     async function refreshAccountAction() {
