@@ -1,6 +1,6 @@
 const { URL } = require('url');
 const { getPool, ensureSchema } = require('./_db');
-const { ensureShopifySchema, normalizeShopDomain } = require('./_shopify');
+const { normalizeShopDomain } = require('./_shopify');
 const { getUserFromRequest } = require('./_auth');
 
 function getBaseUrl(req) {
@@ -58,26 +58,13 @@ module.exports = async (req, res) => {
       return;
     }
 
-    if (!shop || !isValidShop(shop)) {
-      res.status(400).json({ ok: false, error: 'A valid Shopify shop is required' });
+    if (shop && !isValidShop(shop)) {
+      res.status(400).json({ ok: false, error: 'Invalid Shopify shop parameter' });
       return;
     }
+    const shopContext = shop || null;
 
-    await ensureShopifySchema();
     await ensureSchema();
-    const client = await getPool().connect();
-    try {
-      const installation = await client.query(
-        'SELECT shop_domain FROM shopify_installations WHERE shop_domain = $1 LIMIT 1',
-        [shop]
-      );
-      if (!installation.rows[0]) {
-        res.status(403).json({ ok: false, authorized: false, error: 'Shop is not authorized' });
-        return;
-      }
-    } finally {
-      client.release();
-    }
 
     if (!process.env.CREEM_API_KEY) {
       res.status(500).json({ ok: false, error: 'CREEM_API_KEY is not set' });
@@ -89,16 +76,20 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const requestId = `reviewlens-${plan}-${shop}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const requestId = `reviewlens-${plan}-${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const successUrl = new URL('/payment-success.html', getBaseUrl(req));
+    successUrl.searchParams.set('plan', plan);
+    if (shopContext) successUrl.searchParams.set('shop', shopContext);
+
     const payload = {
       product_id: productId,
       request_id: requestId,
       metadata: {
         request_id: requestId,
         user_id: user.id,
-        shop_domain: shop,
+        ...(shopContext ? { shop_domain: shopContext } : {}),
       },
-      success_url: `${getBaseUrl(req)}/payment-success.html?plan=${encodeURIComponent(plan)}&shop=${encodeURIComponent(shop)}`,
+      success_url: successUrl.toString(),
     };
 
     const sessionClient = await getPool().connect();
@@ -108,7 +99,7 @@ module.exports = async (req, res) => {
           INSERT INTO checkout_sessions (request_id, shop_domain, user_id, plan, product_id)
           VALUES ($1, $2, $3, $4, $5)
         `,
-        [requestId, shop, user.id, plan, productId]
+        [requestId, shopContext, user.id, plan, productId]
       );
     } finally {
       sessionClient.release();

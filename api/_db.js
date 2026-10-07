@@ -83,7 +83,7 @@ async function ensureSchema() {
         CREATE TABLE IF NOT EXISTS checkout_sessions (
           id BIGSERIAL PRIMARY KEY,
           request_id TEXT UNIQUE NOT NULL,
-          shop_domain TEXT NOT NULL,
+          shop_domain TEXT,
           user_id TEXT,
           plan TEXT NOT NULL,
           product_id TEXT,
@@ -92,6 +92,10 @@ async function ensureSchema() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
+      `);
+      await client.query(`
+        ALTER TABLE checkout_sessions
+        ALTER COLUMN shop_domain DROP NOT NULL
       `);
       await client.query(`
         CREATE INDEX IF NOT EXISTS checkout_sessions_shop_domain_idx

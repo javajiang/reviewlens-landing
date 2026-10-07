@@ -312,12 +312,12 @@
               <li>Product improvement recommendations</li>
             </ul>
             <div class="cta" style="justify-content:flex-start;margin-top:18px">
-              <a class="primary" href="#product">Unlock in the extension</a>
+              <a id="pro-checkout" class="primary" href="/login.html?next=checkout">Upgrade to Pro</a>
             </div>
           </article>
         </div>
         <p class="note" style="margin-top:18px">
-          Payment starts inside the ReviewLens extension after you connect your Shopify store.
+          Pro is tied to your ReviewLens account. Shopify authorization is used only to access store and product data.
         </p>
       </section>
 
@@ -341,14 +341,52 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     const accountAction = document.getElementById("account-action");
+    const proCheckout = document.getElementById("pro-checkout");
+    let supabaseClientPromise;
+
+    function getCheckoutIntent() {
+      return new URLSearchParams(window.location.search).get("checkout") === "pro";
+    }
 
     async function loadSupabaseClient() {
+      if (supabaseClientPromise) return supabaseClientPromise;
       const response = await fetch("/api/health?config=supabase");
       const config = await response.json();
       if (!response.ok || !config.ok) throw new Error("Supabase is not configured");
-      return window.supabase.createClient(config.supabase.url, config.supabase.publishableKey, {
+      supabaseClientPromise = Promise.resolve(window.supabase.createClient(config.supabase.url, config.supabase.publishableKey, {
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+      }));
+      return supabaseClientPromise;
+    }
+
+    async function startProCheckout() {
+      const client = await loadSupabaseClient();
+      const { data } = await client.auth.getSession();
+      const session = data.session;
+      if (!session) {
+        window.location.href = "login.html?next=checkout";
+        return;
+      }
+
+      if (proCheckout) {
+        proCheckout.textContent = "Opening checkout...";
+        proCheckout.style.pointerEvents = "none";
+        proCheckout.style.opacity = ".7";
+      }
+
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ plan: "pro" }),
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok || !data.checkout_url) {
+        throw new Error(data.error || "Unable to open checkout.");
+      }
+      window.location.href = data.checkout_url;
     }
 
     async function refreshAccountAction() {
@@ -381,7 +419,36 @@
       }
     }
 
-    refreshAccountAction();
+    if (proCheckout) {
+      proCheckout.addEventListener("click", async (event) => {
+        event.preventDefault();
+        try {
+          await startProCheckout();
+        } catch (error) {
+          alert(error?.message || String(error));
+          proCheckout.textContent = "Upgrade to Pro";
+          proCheckout.style.pointerEvents = "";
+          proCheckout.style.opacity = "";
+        }
+      });
+    }
+
+    refreshAccountAction().then(async () => {
+      if (!getCheckoutIntent()) return;
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("checkout");
+      window.history.replaceState({}, "", cleanUrl.toString());
+      try {
+        await startProCheckout();
+      } catch (error) {
+        alert(error?.message || String(error));
+        if (proCheckout) {
+          proCheckout.textContent = "Upgrade to Pro";
+          proCheckout.style.pointerEvents = "";
+          proCheckout.style.opacity = "";
+        }
+      }
+    }).catch(() => {});
   </script>
 </body>
 </html>

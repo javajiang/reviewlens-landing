@@ -16,34 +16,34 @@ function getShop(req) {
 }
 
 async function getAccessStatus(shop, userId) {
-  await ensureShopifySchema();
   await ensureSchema();
   const client = await getPool().connect();
 
   try {
-    const installation = await client.query(
-      'SELECT shop_domain FROM shopify_installations WHERE shop_domain = $1 LIMIT 1',
-      [shop]
-    );
-    if (!installation.rows[0]) {
-      return { authorized: false, paid: false, plan: null, updatedAt: null };
+    let authorized = null;
+    if (shop) {
+      await ensureShopifySchema();
+      const installation = await client.query(
+        'SELECT shop_domain FROM shopify_installations WHERE shop_domain = $1 LIMIT 1',
+        [shop]
+      );
+      authorized = Boolean(installation.rows[0]);
     }
 
     const result = await client.query(
       `
         SELECT plan, status, updated_at
         FROM subscriptions
-        WHERE shop_domain = $1
-          AND user_id = $2
+        WHERE user_id = $1
           AND status = 'active'
         ORDER BY updated_at DESC
         LIMIT 1
       `,
-      [shop, userId]
+      [userId]
     );
     const subscription = result.rows[0] || null;
     return {
-      authorized: true,
+      authorized,
       paid: Boolean(subscription),
       plan: subscription?.plan || null,
       updatedAt: subscription?.updated_at || null,
@@ -56,8 +56,8 @@ async function getAccessStatus(shop, userId) {
 module.exports = async (req, res) => {
   try {
     const shop = getShop(req);
-    if (!shop || !isValidShop(shop)) {
-      res.status(400).json({ ok: false, error: 'Invalid or missing shop parameter' });
+    if (shop && !isValidShop(shop)) {
+      res.status(400).json({ ok: false, error: 'Invalid shop parameter' });
       return;
     }
 
@@ -73,6 +73,10 @@ module.exports = async (req, res) => {
     }
 
     if (req.method === 'POST') {
+      if (!shop) {
+        res.status(400).json({ ok: false, error: 'Shop is required for AI analysis' });
+        return;
+      }
       const user = await getUserFromRequest(req);
       if (!user) {
         res.status(401).json({ ok: false, authenticated: false, error: 'Login is required' });

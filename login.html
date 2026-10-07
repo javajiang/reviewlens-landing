@@ -50,11 +50,13 @@
       const params = new URLSearchParams(window.location.search);
       const extensionId = params.get("extension_id") || "";
       const isExtensionFlow = Boolean(extensionId);
+      const next = params.get("next") || "";
       const callbackUrl = new URL("/auth-callback.html", APP_BASE_URL);
       localStorage.setItem("reviewlens_login_context", JSON.stringify({
         extensionId,
         shop: params.get("shop") || "",
         handle: params.get("handle") || "",
+        next,
       }));
 
       const googleButton = document.getElementById("google-sign-in");
@@ -92,6 +94,11 @@
         if (isExtensionFlow) {
           show("You are already signed in. Continuing...");
           window.location.replace(callbackUrl.toString());
+          return;
+        }
+        if (next === "checkout") {
+          localStorage.removeItem("reviewlens_login_context");
+          window.location.replace("/?checkout=pro");
           return;
         }
         showAccount(data.session.user);
