@@ -71,19 +71,10 @@
       padding:10px 14px;border-radius:999px;border:1px solid var(--line);
       background:rgba(255,255,255,.04);color:var(--text)
     }
-    .account-nav{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:10px 14px;border-radius:999px;border:1px solid rgba(86,227,159,.3);
-      background:rgba(86,227,159,.08);color:#d8f7e7;font-size:14px;font-weight:700;
-      max-width:280px;min-width:0;white-space:nowrap;
+    .account-action{
+      white-space:nowrap;min-width:88px;text-align:center;cursor:pointer;
+      font:inherit;
     }
-    .account-nav[hidden], [hidden]{display:none !important}
-    .account-nav > span{display:block;min-width:0;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .account-nav button{
-      flex:0 0 auto;border:0;background:transparent;color:var(--muted);cursor:pointer;
-      font:inherit;white-space:nowrap;padding:0 0 0 4px
-    }
-    .account-nav button:hover{color:var(--text)}
     .hero{
       min-height:84vh;display:flex;align-items:center;padding:72px 0 36px;
     }
@@ -213,11 +204,7 @@
         <a href="#product">Product</a>
               <a href="#pricing">Pricing</a>
               <a href="#contact">Contact</a>
-              <a id="sign-in-link" class="btn" href="login.html">Sign in</a>
-              <span id="account-nav" class="account-nav" hidden>
-                <span id="account-email"></span>
-                <button id="sign-out" type="button">Sign out</button>
-              </span>
+              <button id="account-action" class="btn account-action" type="button">Sign in</button>
               <a class="btn" href="privacy.html">Privacy Policy</a>
         <a class="btn" href="terms.html">Terms of Service</a>
       </nav>
@@ -353,10 +340,7 @@
   </div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const signInLink = document.getElementById("sign-in-link");
-    const accountNav = document.getElementById("account-nav");
-    const accountEmail = document.getElementById("account-email");
-    const signOutButton = document.getElementById("sign-out");
+    const accountAction = document.getElementById("account-action");
 
     async function loadSupabaseClient() {
       const response = await fetch("/api/health?config=supabase");
@@ -367,26 +351,37 @@
       });
     }
 
-    async function refreshAccountNav() {
+    async function refreshAccountAction() {
+      let client;
       try {
-        const client = await loadSupabaseClient();
+        client = await loadSupabaseClient();
         const { data } = await client.auth.getSession();
         const user = data.session?.user;
-        if (!user) return;
-        signInLink.hidden = true;
-        accountNav.hidden = false;
-        accountEmail.textContent = user.email || "Signed in";
-        signOutButton.onclick = async () => {
-          signOutButton.disabled = true;
+        if (!user) {
+          accountAction.textContent = "Sign in";
+          accountAction.title = "Sign in to ReviewLens";
+          accountAction.onclick = () => {
+            window.location.href = "login.html";
+          };
+          return;
+        }
+
+        accountAction.textContent = "Sign out";
+        accountAction.title = user.email || "Sign out of ReviewLens";
+        accountAction.onclick = async () => {
+          accountAction.disabled = true;
           await client.auth.signOut();
           window.location.reload();
         };
       } catch (_) {
-        // The public homepage remains usable if auth configuration is unavailable.
+        accountAction.textContent = "Sign in";
+        accountAction.onclick = () => {
+          window.location.href = "login.html";
+        };
       }
     }
 
-    refreshAccountNav();
+    refreshAccountAction();
   </script>
 </body>
 </html>
