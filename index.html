@@ -75,12 +75,13 @@
       display:inline-flex;align-items:center;gap:8px;
       padding:10px 14px;border-radius:999px;border:1px solid rgba(86,227,159,.3);
       background:rgba(86,227,159,.08);color:#d8f7e7;font-size:14px;font-weight:700;
-      max-width:260px;
+      max-width:280px;min-width:0;white-space:nowrap;
     }
-    .account-nav span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .account-nav[hidden], [hidden]{display:none !important}
+    .account-nav > span{display:block;min-width:0;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .account-nav button{
-      border:0;background:transparent;color:var(--muted);cursor:pointer;
-      font:inherit;padding:0 0 0 4px
+      flex:0 0 auto;border:0;background:transparent;color:var(--muted);cursor:pointer;
+      font:inherit;white-space:nowrap;padding:0 0 0 4px
     }
     .account-nav button:hover{color:var(--text)}
     .hero{
