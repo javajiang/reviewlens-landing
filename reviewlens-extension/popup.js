@@ -9,6 +9,7 @@ const state = {
   user: null,
   billing: null,
   product: null,
+  analysisResult: null,
   hasResults: false,
   targetUrl: "",
 };
@@ -35,6 +36,7 @@ const productMetaEl = document.getElementById("product-meta");
 const resultsPanelEl = document.getElementById("results-panel");
 const analysisViewEl = document.getElementById("analysis-view");
 const reviewsViewEl = document.getElementById("reviews-view");
+const analysisResultEl = document.getElementById("analysis-result");
 const viewButtons = Array.from(document.querySelectorAll(".view-tab"));
 const tabButtons = Array.from(document.querySelectorAll(".tab"));
 const unlockButton = document.getElementById("unlock-analysis");
@@ -58,24 +60,17 @@ unlockButton.addEventListener("click", async () => {
   }
 
   unlockButton.disabled = true;
-  setStatus("Creating secure checkout...");
   try {
-    const response = await postJson(
-      `${APP_BASE_URL}/api/checkout?plan=pro&shop=${encodeURIComponent(shopDomain)}`,
-      {},
-      { Authorization: `Bearer ${state.user.accessToken}` }
-    );
-    if (!response.ok || !response.data?.ok || !response.data?.checkout_url) {
-      if (response.status === 401) {
-        await clearUserSession();
-        throw new Error("Your login session expired. Click Unlock Full Analysis again to sign in.");
-      }
-      throw new Error(response.data?.error || "Unable to create checkout.");
+    if (!state.billing) await refreshAccessStatus();
+    if (state.billing?.paid) {
+      await runAnalysis(shopDomain);
+    } else {
+      await openCheckout(shopDomain);
     }
-    await chrome.tabs.create({ url: response.data.checkout_url, active: true });
   } catch (error) {
     setStatus(error instanceof Error ? error.message : String(error), true);
   } finally {
+    unlockButton.textContent = "Unlock Full Analysis";
     unlockButton.disabled = false;
   }
 });
@@ -149,10 +144,12 @@ scrapeButton.addEventListener("click", async () => {
     if (!response?.ok) throw new Error(response?.error || "Scrape failed.");
 
     state.data = response.result;
+    state.analysisResult = null;
     renderResult();
     await persistState();
     const sync = await syncReviews(response.result);
     if (sync.ok) {
+      await refreshAccessStatus();
       setStatus(`${sync.saved} reviews saved.`);
     } else {
       setStatus("Reviews displayed locally, but database sync failed.");
@@ -239,6 +236,7 @@ async function restoreState() {
     if (!saved) return;
 
     state.data = saved.data || null;
+    state.analysisResult = saved.analysisResult || null;
     state.activeView = saved.activeView || "analysis";
     state.activeTab = saved.activeTab || "negative";
     state.hasResults = Boolean(state.data);
@@ -257,6 +255,7 @@ async function persistState() {
     await chrome.storage.local.set({
       [STORAGE_KEY]: {
         data: state.data,
+        analysisResult: state.analysisResult,
         activeView: state.activeView,
         activeTab: state.activeTab,
       },
@@ -367,7 +366,136 @@ function renderResult() {
   viewButtons.forEach((item) => item.classList.toggle("active", item.dataset.view === state.activeView));
   renderViews();
   renderList();
+  renderAnalysisResult();
   persistState();
+}
+
+async function openCheckout(shopDomain) {
+  setStatus("Creating secure checkout...");
+  const response = await postJson(
+    `${APP_BASE_URL}/api/checkout?plan=pro&shop=${encodeURIComponent(shopDomain)}`,
+    {},
+    { Authorization: `Bearer ${state.user.accessToken}` }
+  );
+  if (!response.ok || !response.data?.ok || !response.data?.checkout_url) {
+    if (response.status === 401) {
+      await clearUserSession();
+      throw new Error("Your login session expired. Click Unlock Full Analysis again to sign in.");
+    }
+    throw new Error(response.data?.error || "Unable to create checkout.");
+  }
+  await chrome.tabs.create({ url: response.data.checkout_url, active: true });
+}
+
+async function runAnalysis(shopDomain) {
+  const handle = productHandleFromUrl(state.targetUrl || urlInput.value);
+  if (!handle) throw new Error("Open a Shopify product page before analyzing.");
+
+  setStatus("Analyzing reviews...");
+  unlockButton.textContent = "Analyzing...";
+  const response = await postJson(
+    `${APP_BASE_URL}/api/analysis?shop=${encodeURIComponent(shopDomain)}`,
+    {
+      handle,
+      productUrl: state.targetUrl || urlInput.value,
+    },
+    { Authorization: `Bearer ${state.user.accessToken}` }
+  );
+
+  if (!response.ok || !response.data?.ok) {
+    if (response.status === 401) {
+      await clearUserSession();
+      throw new Error("Your login session expired. Sign in again.");
+    }
+    throw new Error(response.data?.error || "AI analysis failed.");
+  }
+
+  state.analysisResult = response.data.analysisResult || null;
+  renderAnalysisResult();
+  await persistState();
+  setStatus(response.data.cached ? "Loaded saved AI analysis." : "AI analysis completed.");
+}
+
+function renderAnalysisResult() {
+  if (!analysisResultEl) return;
+  const result = state.analysisResult;
+  analysisResultEl.innerHTML = "";
+  analysisResultEl.classList.toggle("is-hidden", !result);
+  if (!result) return;
+
+  const summary = document.createElement("section");
+  summary.className = "analysis-block";
+  summary.innerHTML = "<h3>Summary</h3>";
+  const summaryText = document.createElement("p");
+  summaryText.textContent = result.summary || "No summary returned.";
+  summary.appendChild(summaryText);
+  analysisResultEl.appendChild(summary);
+
+  const issues = document.createElement("section");
+  issues.className = "analysis-block";
+  issues.innerHTML = "<h3>Top Issues</h3>";
+  for (const issue of Array.isArray(result.top_issues) ? result.top_issues : []) {
+    const item = document.createElement("div");
+    item.className = "analysis-item";
+    const title = document.createElement("strong");
+    title.textContent = issue.title || "Issue";
+    item.appendChild(title);
+    for (const value of [issue.description, issue.impact, issue.recommendation]) {
+      if (!value) continue;
+      const paragraph = document.createElement("p");
+      paragraph.textContent = value;
+      item.appendChild(paragraph);
+    }
+    appendEvidence(item, issue.evidence);
+    issues.appendChild(item);
+  }
+  analysisResultEl.appendChild(issues);
+
+  const strengths = document.createElement("section");
+  strengths.className = "analysis-block";
+  strengths.innerHTML = "<h3>Strengths</h3>";
+  for (const strength of Array.isArray(result.strengths) ? result.strengths : []) {
+    const item = document.createElement("div");
+    item.className = "analysis-item";
+    const title = document.createElement("strong");
+    title.textContent = strength.title || "Strength";
+    item.appendChild(title);
+    if (strength.description) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = strength.description;
+      item.appendChild(paragraph);
+    }
+    appendEvidence(item, strength.evidence);
+    strengths.appendChild(item);
+  }
+  analysisResultEl.appendChild(strengths);
+
+  const actions = Array.isArray(result.priority_actions) ? result.priority_actions : [];
+  if (actions.length) {
+    const actionBlock = document.createElement("section");
+    actionBlock.className = "analysis-block";
+    actionBlock.innerHTML = "<h3>Priority Actions</h3>";
+    const list = document.createElement("ol");
+    for (const action of actions) {
+      const item = document.createElement("li");
+      item.textContent = action;
+      list.appendChild(item);
+    }
+    actionBlock.appendChild(list);
+    analysisResultEl.appendChild(actionBlock);
+  }
+}
+
+function appendEvidence(parent, evidence) {
+  if (!Array.isArray(evidence) || !evidence.length) return;
+  const list = document.createElement("ul");
+  list.className = "analysis-evidence";
+  for (const item of evidence) {
+    const entry = document.createElement("li");
+    entry.textContent = item?.quote || "";
+    if (entry.textContent) list.appendChild(entry);
+  }
+  if (list.children.length) parent.appendChild(list);
 }
 
 function renderList() {

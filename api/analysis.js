@@ -1,7 +1,12 @@
 const { ensureSchema, getPool } = require('./_db');
 const { ensureShopifySchema, normalizeShopDomain } = require('./_shopify');
 const { getUserFromRequest } = require('./_auth');
-const { buildReviewStats, prepareReviewsForAnalysis } = require('./_analysis');
+const {
+  buildAnalysisPrompt,
+  buildReviewStats,
+  parseAnalysisResponse,
+  prepareReviewsForAnalysis,
+} = require('./_analysis');
 const { handleFromUrl, normalizeHandle } = require('./reviews/_shared');
 
 function isValidShop(shop) {
@@ -15,6 +20,59 @@ function getShop(req) {
     req.body?.shop ||
     req.body?.shopDomain
   );
+}
+
+function getModelConfig() {
+  return {
+    apiKey: String(process.env.CLAUDE_API_KEY || '').trim(),
+    endpoint: String(
+      process.env.CLAUDE_API_URL ||
+      'https://lingshuzhisuan.cn/v1/messages'
+    ).trim(),
+    model: String(process.env.CLAUDE_MODEL || 'claude-sonnet-4-6').trim(),
+  };
+}
+
+async function callAnalysisModel(prompt) {
+  const config = getModelConfig();
+  if (!config.apiKey) throw new Error('CLAUDE_API_KEY is not set');
+  if (!config.endpoint || !config.model) throw new Error('Claude model configuration is incomplete');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  try {
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    const text = await response.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text };
+    }
+    if (!response.ok) {
+      throw new Error(`Model request failed with HTTP ${response.status}`);
+    }
+    return { data, model: config.model };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function getAccessStatus(shop, userId) {
@@ -151,28 +209,152 @@ module.exports = async (req, res) => {
         }
 
         const reviews = Array.isArray(row.reviews) ? row.reviews : [];
+        if (!reviews.length) {
+          res.status(422).json({
+            ok: false,
+            authorized: true,
+            paid: true,
+            error: 'No reviews are available for AI analysis',
+          });
+          return;
+        }
+
+        if (row.analysis_status === 'completed' && row.analysis_result) {
+          res.status(200).json({
+            ok: true,
+            authorized: true,
+            paid: true,
+            plan: access.plan,
+            cached: true,
+            analysisStatus: row.analysis_status,
+            analysisResult: row.analysis_result,
+            analysisModel: row.analysis_model,
+            analysisUpdatedAt: row.analysis_updated_at,
+          });
+          return;
+        }
+
         const selectedReviews = prepareReviewsForAnalysis(reviews);
-        res.status(501).json({
-          ok: false,
+        if (!selectedReviews.length) {
+          res.status(422).json({
+            ok: false,
+            authorized: true,
+            paid: true,
+            error: 'No usable review text is available for AI analysis',
+          });
+          return;
+        }
+
+        const reviewStats = {
+          totalReviews: reviews.length,
+          ratingDistribution: buildReviewStats(reviews),
+        };
+        const prompt = buildAnalysisPrompt({
+          product: {
+            title: row.product_title,
+            description: row.product_description,
+          },
+          reviewStats,
+          reviews: selectedReviews,
+        });
+
+        await client.query(
+          `
+            UPDATE review_data
+            SET analysis_status = 'analyzing',
+                analysis_result = NULL,
+                analysis_model = $3,
+                analysis_updated_at = NOW(),
+                updated_at = NOW()
+            WHERE shop_domain = $1
+              AND product_handle = $2
+          `,
+          [shop, productHandle, getModelConfig().model]
+        );
+
+        let modelResponse;
+        try {
+          modelResponse = await callAnalysisModel(prompt);
+        } catch (error) {
+          await client.query(
+            `
+              UPDATE review_data
+              SET analysis_status = 'failed',
+                  analysis_result = NULL,
+                  analysis_updated_at = NOW(),
+                  updated_at = NOW()
+              WHERE shop_domain = $1
+                AND product_handle = $2
+            `,
+            [shop, productHandle]
+          );
+          const message = error?.name === 'AbortError'
+            ? 'Model request timed out'
+            : error?.message || 'Model request failed';
+          res.status(502).json({
+            ok: false,
+            authorized: true,
+            paid: true,
+            error: message,
+          });
+          return;
+        }
+
+        let analysisResult;
+        try {
+          analysisResult = parseAnalysisResponse(modelResponse.data);
+        } catch (error) {
+          await client.query(
+            `
+              UPDATE review_data
+              SET analysis_status = 'failed',
+                  analysis_result = NULL,
+                  analysis_model = $3,
+                  analysis_updated_at = NOW(),
+                  updated_at = NOW()
+              WHERE shop_domain = $1
+                AND product_handle = $2
+            `,
+            [shop, productHandle, modelResponse.model]
+          );
+          res.status(502).json({
+            ok: false,
+            authorized: true,
+            paid: true,
+            error: error?.message || 'Invalid model response',
+          });
+          return;
+        }
+
+        await client.query(
+          `
+            UPDATE review_data
+            SET analysis_status = 'completed',
+                analysis_result = $3::jsonb,
+                analysis_model = $4,
+                analysis_updated_at = NOW(),
+                updated_at = NOW()
+            WHERE shop_domain = $1
+              AND product_handle = $2
+          `,
+          [shop, productHandle, JSON.stringify(analysisResult), modelResponse.model]
+        );
+
+        res.status(200).json({
+          ok: true,
           authorized: true,
           paid: true,
           plan: access.plan,
-          analysisStatus: row.analysis_status,
-          analysisResult: row.analysis_result,
-          analysisModel: row.analysis_model,
-          analysisUpdatedAt: row.analysis_updated_at,
+          cached: false,
+          analysisStatus: 'completed',
+          analysisResult,
+          analysisModel: modelResponse.model,
+          analysisUpdatedAt: new Date().toISOString(),
           input: {
-            product: {
-              title: row.product_title,
-              description: row.product_description,
-            },
-            reviewStats: {
-              totalReviews: reviews.length,
-              ratingDistribution: buildReviewStats(reviews),
-            },
+            totalReviews: reviews.length,
             selectedReviewCount: selectedReviews.length,
+            ratingDistribution: reviewStats.ratingDistribution,
           },
-          error: 'AI analysis is not enabled yet',
         });
       } finally {
         client.release();
