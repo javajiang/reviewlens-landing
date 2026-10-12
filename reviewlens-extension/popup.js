@@ -36,6 +36,7 @@ const productMetaEl = document.getElementById("product-meta");
 const resultsPanelEl = document.getElementById("results-panel");
 const analysisViewEl = document.getElementById("analysis-view");
 const reviewsViewEl = document.getElementById("reviews-view");
+const analysisHookEl = document.querySelector(".analysis-hook");
 const analysisResultEl = document.getElementById("analysis-result");
 const viewButtons = Array.from(document.querySelectorAll(".view-tab"));
 const tabButtons = Array.from(document.querySelectorAll(".tab"));
@@ -52,6 +53,7 @@ unlockButton.addEventListener("click", async () => {
     const loginUrl = new URL(`${APP_BASE_URL}/login.html`);
     loginUrl.searchParams.set("extension_id", chrome.runtime.id);
     loginUrl.searchParams.set("shop", shopDomain);
+    loginUrl.searchParams.set("intent", "unlock");
     const handle = productHandleFromUrl(state.targetUrl);
     if (handle) loginUrl.searchParams.set("handle", handle);
     setStatus("Opening the ReviewLens sign-in page...");
@@ -195,6 +197,8 @@ async function bootstrap() {
   renderViews();
   if (state.hasResults) {
     renderResult();
+  } else {
+    renderAnalysisResult();
   }
 }
 
@@ -419,6 +423,7 @@ async function runAnalysis(shopDomain) {
 function renderAnalysisResult() {
   if (!analysisResultEl) return;
   const result = state.analysisResult;
+  if (analysisHookEl) analysisHookEl.classList.toggle("is-hidden", Boolean(result));
   analysisResultEl.innerHTML = "";
   analysisResultEl.classList.toggle("is-hidden", !result);
   if (!result) return;
@@ -521,7 +526,7 @@ function renderList() {
 }
 
 function renderViews() {
-  const hasResults = state.hasResults;
+  const hasResults = state.hasResults || Boolean(state.analysisResult);
 
   resultsPanelEl.classList.toggle("is-hidden", !hasResults);
 

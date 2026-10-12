@@ -53,7 +53,7 @@
         }
 
         const target = new URL(`chrome-extension://${context.extensionId}/auth-callback.html`);
-        for (const [key, value] of Object.entries({ shop: context.shop, handle: context.handle })) {
+        for (const [key, value] of Object.entries({ shop: context.shop, handle: context.handle, intent: context.intent })) {
           if (value) target.searchParams.set(key, value);
         }
         const tokenParams = new URLSearchParams({
