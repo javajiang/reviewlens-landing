@@ -428,79 +428,69 @@ function renderAnalysisResult() {
   analysisResultEl.classList.toggle("is-hidden", !result);
   if (!result) return;
 
-  const summary = document.createElement("section");
-  summary.className = "analysis-block";
-  summary.innerHTML = "<h3>Summary</h3>";
-  const summaryText = document.createElement("p");
-  summaryText.textContent = result.summary || "No summary returned.";
-  summary.appendChild(summaryText);
-  analysisResultEl.appendChild(summary);
+  const issues = normalizeAnalysisIssues(result);
+  const block = document.createElement("section");
+  block.className = "analysis-block";
+  block.innerHTML = `
+    <div class="analysis-head">
+      <h3>Product issues</h3>
+      <span>${issues.length} found</span>
+    </div>
+  `;
+  if (!issues.length) {
+    const empty = document.createElement("p");
+    empty.className = "analysis-empty";
+    empty.textContent = "No clear product issues were returned.";
+    block.appendChild(empty);
+    analysisResultEl.appendChild(block);
+    return;
+  }
 
-  const issues = document.createElement("section");
-  issues.className = "analysis-block";
-  issues.innerHTML = "<h3>Top Issues</h3>";
-  for (const issue of Array.isArray(result.top_issues) ? result.top_issues : []) {
-    const item = document.createElement("div");
-    item.className = "analysis-item";
-    const title = document.createElement("strong");
-    title.textContent = issue.title || "Issue";
+  issues.slice(0, 5).forEach((issue, index) => {
+    const item = document.createElement("article");
+    item.className = "analysis-issue";
+
+    const title = document.createElement("div");
+    title.className = "analysis-issue-title";
+    const number = document.createElement("span");
+    number.className = "analysis-number";
+    number.textContent = String(index + 1);
+    const titleText = document.createElement("strong");
+    titleText.textContent = issue.title || "Product issue";
+    title.append(number, titleText);
     item.appendChild(title);
-    for (const value of [issue.description, issue.impact, issue.recommendation]) {
-      if (!value) continue;
-      const paragraph = document.createElement("p");
-      paragraph.textContent = value;
-      item.appendChild(paragraph);
-    }
-    appendEvidence(item, issue.evidence);
-    issues.appendChild(item);
-  }
-  analysisResultEl.appendChild(issues);
 
-  const strengths = document.createElement("section");
-  strengths.className = "analysis-block";
-  strengths.innerHTML = "<h3>Strengths</h3>";
-  for (const strength of Array.isArray(result.strengths) ? result.strengths : []) {
-    const item = document.createElement("div");
-    item.className = "analysis-item";
-    const title = document.createElement("strong");
-    title.textContent = strength.title || "Strength";
-    item.appendChild(title);
-    if (strength.description) {
-      const paragraph = document.createElement("p");
-      paragraph.textContent = strength.description;
-      item.appendChild(paragraph);
-    }
-    appendEvidence(item, strength.evidence);
-    strengths.appendChild(item);
-  }
-  analysisResultEl.appendChild(strengths);
+    item.appendChild(buildAnalysisField("What users report", issue.problem));
+    item.appendChild(buildAnalysisField("What to improve", issue.suggestion, true));
+    block.appendChild(item);
+  });
 
-  const actions = Array.isArray(result.priority_actions) ? result.priority_actions : [];
-  if (actions.length) {
-    const actionBlock = document.createElement("section");
-    actionBlock.className = "analysis-block";
-    actionBlock.innerHTML = "<h3>Priority Actions</h3>";
-    const list = document.createElement("ol");
-    for (const action of actions) {
-      const item = document.createElement("li");
-      item.textContent = action;
-      list.appendChild(item);
-    }
-    actionBlock.appendChild(list);
-    analysisResultEl.appendChild(actionBlock);
-  }
+  analysisResultEl.appendChild(block);
 }
 
-function appendEvidence(parent, evidence) {
-  if (!Array.isArray(evidence) || !evidence.length) return;
-  const list = document.createElement("ul");
-  list.className = "analysis-evidence";
-  for (const item of evidence) {
-    const entry = document.createElement("li");
-    entry.textContent = item?.quote || "";
-    if (entry.textContent) list.appendChild(entry);
+function normalizeAnalysisIssues(result) {
+  if (Array.isArray(result?.issues)) return result.issues;
+  if (Array.isArray(result?.top_issues)) {
+    return result.top_issues.map((issue) => ({
+      title: issue.title || "Product issue",
+      problem: issue.description || issue.impact || "",
+      suggestion: issue.recommendation || "",
+    }));
   }
-  if (list.children.length) parent.appendChild(list);
+  return [];
+}
+
+function buildAnalysisField(label, text, isSuggestion = false) {
+  const field = document.createElement("div");
+  field.className = isSuggestion ? "analysis-field analysis-suggestion" : "analysis-field";
+  const heading = document.createElement("p");
+  heading.className = "analysis-label";
+  heading.textContent = label;
+  const body = document.createElement("p");
+  body.className = "analysis-copy";
+  body.textContent = text || "No detail returned.";
+  field.append(heading, body);
+  return field;
 }
 
 function renderList() {
