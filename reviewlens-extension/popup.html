@@ -10,36 +10,26 @@
     <main class="shell">
       <header class="hero">
         <div class="eyebrow">ReviewLens</div>
-        <h1>Connect the current store, then analyze its reviews.</h1>
-        <p class="subhead">The popup detects the active Shopify shop and lets you connect it before scraping.</p>
+        <h1>Find product issues from customer reviews.</h1>
+        <p class="subhead">Connect your Shopify store, then analyze the product page you are viewing.</p>
       </header>
 
-      <section class="store-card">
-        <div class="store-row">
+      <section class="status-card">
+        <div class="status-row">
           <div>
-            <div class="field-label">Current store</div>
+            <div class="field-label">Store</div>
             <div id="store-name" class="store-value">Detecting...</div>
           </div>
-          <button id="connect" class="ghost-button">Connect Shopify Store</button>
+          <div id="store-meta" class="status-pill">Waiting</div>
         </div>
-        <div id="store-meta" class="status">Open a Shopify storefront tab to detect the shop domain.</div>
-      </section>
-
-      <section class="product-card">
-        <div class="field-label">Current product</div>
-        <div id="product-title" class="product-title">No product loaded yet.</div>
-        <div id="product-description" class="product-description">Open a Shopify product page and click Use Current Tab.</div>
-        <div id="product-meta" class="status">Waiting for product metadata.</div>
-      </section>
-
-      <section class="composer">
-        <label for="url">Product URL fallback</label>
-        <div class="hint">Use this only for manual testing when the current tab is not a Shopify storefront.</div>
-        <input id="url" type="url" placeholder="https://store.com/products/example" />
-        <div class="button-row">
-          <button id="use-current">Use Current Tab</button>
-          <button id="scrape">Analyze Reviews</button>
+        <div class="status-row">
+          <div>
+            <div class="field-label">Product</div>
+            <div id="product-title" class="store-value">Open a product page</div>
+          </div>
+          <div id="product-meta" class="status-pill">Waiting</div>
         </div>
+        <button id="primary-action" class="primary-action" data-action="wait">Open Shopify Product Page</button>
         <div id="status" class="status">Ready.</div>
       </section>
 

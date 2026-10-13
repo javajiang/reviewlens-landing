@@ -19,10 +19,7 @@ const AUTH_KEY = "reviewlens_auth_state";
 const USER_KEY = "reviewlens_user_session";
 const PRODUCT_KEY = "reviewlens_product_state";
 
-const urlInput = document.getElementById("url");
-const connectButton = document.getElementById("connect");
-const useCurrentButton = document.getElementById("use-current");
-const scrapeButton = document.getElementById("scrape");
+const primaryActionButton = document.getElementById("primary-action");
 const statusEl = document.getElementById("status");
 const totalEl = document.getElementById("total");
 const negativeEl = document.getElementById("negative");
@@ -31,7 +28,6 @@ const listEl = document.getElementById("list");
 const storeNameEl = document.getElementById("store-name");
 const storeMetaEl = document.getElementById("store-meta");
 const productTitleEl = document.getElementById("product-title");
-const productDescriptionEl = document.getElementById("product-description");
 const productMetaEl = document.getElementById("product-meta");
 const resultsPanelEl = document.getElementById("results-panel");
 const analysisViewEl = document.getElementById("analysis-view");
@@ -81,86 +77,17 @@ bootstrap().catch((error) => {
   setStatus(error instanceof Error ? error.message : String(error), true);
 });
 
-connectButton.addEventListener("click", async () => {
-  const shopDomain = state.context?.shopDomain || inferShopDomainFromUrl(urlInput.value);
-  if (!shopDomain) {
-    setStatus("Open a Shopify storefront tab first.", true);
+primaryActionButton.addEventListener("click", async () => {
+  const action = primaryActionButton.dataset.action;
+  if (action === "connect") {
+    await connectStore();
     return;
   }
-
-  const targetUrl = state.context?.isProductPage && state.context?.productUrl
-    ? state.context.productUrl
-    : (isLikelyProductUrl(urlInput.value) ? normalizeUrl(urlInput.value) : state.targetUrl);
-
-  if (targetUrl) {
-    state.targetUrl = targetUrl;
-    urlInput.value = targetUrl;
-    await persistTargetUrl();
-  }
-
-  const installUrl = `${APP_BASE_URL}/api/shopify/install?shop=${encodeURIComponent(shopDomain)}`;
-  setStatus("Opening Shopify authorization...");
-  await chrome.tabs.create({ url: installUrl, active: true });
-});
-
-useCurrentButton.addEventListener("click", async () => {
-  const tab = await getCurrentTab();
-  if (!tab?.url) {
-    setStatus("No active tab found.", true);
+  if (action === "analyze") {
+    await scrapeCurrentProduct();
     return;
   }
-
-  const response = await getTabContext(tab.id);
-  if (response?.isProductPage && response?.productUrl) {
-    state.targetUrl = response.productUrl;
-    urlInput.value = response.productUrl;
-    await persistTargetUrl();
-    setStatus("Loaded current product page.");
-    await refreshContext();
-    return;
-  }
-
-  if (state.targetUrl) {
-    urlInput.value = state.targetUrl;
-    setStatus("Current tab is not a product page. Restored the last product URL.");
-    return;
-  }
-
-  setStatus("Current tab is not a product page.", true);
-});
-
-scrapeButton.addEventListener("click", async () => {
-  const url = normalizeUrl(state.targetUrl || urlInput.value);
-  state.targetUrl = url;
-  urlInput.value = url;
-  await persistTargetUrl();
-  setStatus("Scraping...");
-  scrapeButton.disabled = true;
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "REVIEWLENS_SCRAPE_URL",
-      url,
-    });
-
-    if (!response?.ok) throw new Error(response?.error || "Scrape failed.");
-
-    state.data = response.result;
-    state.analysisResult = null;
-    renderResult();
-    await persistState();
-    const sync = await syncReviews(response.result);
-    if (sync.ok) {
-      await refreshAccessStatus();
-      setStatus(`${sync.saved} reviews saved.`);
-    } else {
-      setStatus("Reviews displayed locally, but database sync failed.");
-    }
-  } catch (error) {
-    setStatus(error instanceof Error ? error.message : String(error), true);
-  } finally {
-    scrapeButton.disabled = false;
-  }
+  setStatus("Open a Shopify product page first.", true);
 });
 
 for (const button of tabButtons) {
@@ -188,10 +115,9 @@ async function bootstrap() {
   await restoreUserSession();
   await restoreProductState();
   const tab = await getCurrentTab();
-  if (state.targetUrl) {
-    urlInput.value = state.targetUrl;
-  } else if (tab?.url && isHttpUrl(tab.url)) {
-    urlInput.value = tab.url;
+  if (!state.targetUrl && tab?.url && isLikelyProductUrl(tab.url)) {
+    state.targetUrl = tab.url;
+    await persistTargetUrl();
   }
   await refreshContext();
   renderViews();
@@ -220,11 +146,7 @@ async function refreshContext() {
   if (state.context?.isProductPage && state.context.productUrl) {
     state.targetUrl = state.context.productUrl;
     await persistTargetUrl();
-    if (!urlInput.value || !isLikelyProductUrl(urlInput.value)) {
-      urlInput.value = state.targetUrl;
-    }
-  } else if (!urlInput.value && state.targetUrl) {
-    urlInput.value = state.targetUrl;
+    await clearStaleProductState();
   }
 
   await refreshAuthStatus();
@@ -265,6 +187,27 @@ async function persistState() {
       },
     });
   } catch (_) {}
+}
+
+async function clearStaleProductState() {
+  const currentHandle = productHandleFromUrl(state.targetUrl);
+  const dataHandle = productHandleFromUrl(state.data?.url);
+  const productHandle = state.product?.handle || "";
+  let changed = false;
+
+  if (currentHandle && dataHandle && currentHandle !== dataHandle) {
+    state.data = null;
+    state.analysisResult = null;
+    state.hasResults = false;
+    changed = true;
+  }
+
+  if (currentHandle && productHandle && currentHandle !== productHandle) {
+    state.product = null;
+    await persistProductState();
+  }
+
+  if (changed) await persistState();
 }
 
 async function persistTargetUrl() {
@@ -329,30 +272,90 @@ function renderStoreState() {
 
   if (!ctx && !shopDomain) {
     storeNameEl.textContent = "No Shopify shop detected";
-    storeMetaEl.textContent = "Open a Shopify storefront tab, then click Connect.";
-    connectButton.disabled = true;
+    storeMetaEl.textContent = "Waiting";
+    storeMetaEl.className = "status-pill";
     renderProductState(null);
+    updatePrimaryActionState();
     return;
   }
 
   storeNameEl.textContent = shopDomain || "Shopify page detected";
-  connectButton.disabled = !(ctx?.canAuthorize || shopDomain);
 
   if (state.auth?.authorized) {
-    connectButton.textContent = "Connected";
-    storeMetaEl.textContent = "Store connected. Open a product page, then analyze reviews.";
+    storeMetaEl.textContent = "Connected";
+    storeMetaEl.className = "status-pill is-ok";
     renderProductState(state.product);
+    updatePrimaryActionState();
     return;
   }
 
-  connectButton.textContent = "Connect Shopify Store";
-  storeMetaEl.textContent = ctx?.url || state.targetUrl || "Open a Shopify storefront tab to detect the shop domain.";
+  storeMetaEl.textContent = "Not connected";
+  storeMetaEl.className = "status-pill";
 
   if (ctx && !ctx.canAuthorize) {
-    storeMetaEl.textContent = "This page looks like Shopify, but the shop domain could not be resolved.";
+    storeMetaEl.textContent = "Needs shop";
   }
 
   renderProductState(state.product);
+  updatePrimaryActionState();
+}
+
+async function connectStore() {
+  const shopDomain = state.context?.shopDomain || state.auth?.shopDomain || inferShopDomainFromUrl(state.targetUrl);
+  if (!shopDomain) {
+    setStatus("Open a Shopify storefront tab first.", true);
+    return;
+  }
+
+  const targetUrl = state.context?.isProductPage && state.context?.productUrl ? state.context.productUrl : state.targetUrl;
+  if (targetUrl) {
+    state.targetUrl = targetUrl;
+    await persistTargetUrl();
+  }
+
+  const installUrl = `${APP_BASE_URL}/api/shopify/install?shop=${encodeURIComponent(shopDomain)}`;
+  setStatus("Opening Shopify authorization...");
+  await chrome.tabs.create({ url: installUrl, active: true });
+}
+
+async function scrapeCurrentProduct() {
+  const url = normalizeUrl(state.context?.productUrl || state.targetUrl);
+  state.targetUrl = url;
+  await persistTargetUrl();
+  setStatus("Scraping reviews...");
+  primaryActionButton.disabled = true;
+  primaryActionButton.textContent = "Analyzing...";
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "REVIEWLENS_SCRAPE_URL",
+      url,
+    });
+
+    if (!response?.ok) throw new Error(response?.error || "Scrape failed.");
+
+    state.data = response.result;
+    state.analysisResult = null;
+    renderResult();
+    await persistState();
+    const sync = await syncReviews(response.result);
+    await refreshAccessStatus();
+    if (sync.ok) {
+      setStatus(`${sync.saved} reviews saved.`);
+    } else {
+      setStatus("Reviews displayed locally, but database sync failed.");
+    }
+
+    const shopDomain = state.context?.shopDomain || state.auth?.shopDomain || inferShopDomainFromUrl(state.targetUrl);
+    if (state.billing?.paid && shopDomain) {
+      await runAnalysis(shopDomain);
+    }
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    primaryActionButton.disabled = false;
+    updatePrimaryActionState();
+  }
 }
 
 async function getCurrentTab() {
@@ -392,7 +395,7 @@ async function openCheckout(shopDomain) {
 }
 
 async function runAnalysis(shopDomain) {
-  const handle = productHandleFromUrl(state.targetUrl || urlInput.value);
+  const handle = productHandleFromUrl(state.targetUrl);
   if (!handle) throw new Error("Open a Shopify product page before analyzing.");
 
   setStatus("Analyzing reviews...");
@@ -401,7 +404,7 @@ async function runAnalysis(shopDomain) {
     `${APP_BASE_URL}/api/analysis?shop=${encodeURIComponent(shopDomain)}`,
     {
       handle,
-      productUrl: state.targetUrl || urlInput.value,
+      productUrl: state.targetUrl,
     },
     { Authorization: `Bearer ${state.user.accessToken}` }
   );
@@ -552,7 +555,7 @@ function setStatus(message, isError = false) {
 
 function normalizeUrl(value) {
   const raw = String(value || "").trim();
-  if (!raw) throw new Error("Please enter a product URL.");
+  if (!raw) throw new Error("Open a Shopify product page first.");
   if (!/^https?:\/\//i.test(raw)) throw new Error("Only http and https URLs are supported.");
   return raw;
 }
@@ -674,19 +677,53 @@ async function refreshAccessStatus() {
 }
 
 function renderProductState(product) {
+  const handle = productHandleFromUrl(state.targetUrl);
+  if (product?.handle && handle && product.handle !== handle) {
+    product = null;
+  }
   if (!product?.title) {
-    productTitleEl.textContent = "No product loaded yet.";
-    productDescriptionEl.textContent = "Open a Shopify product page and click Use Current Tab.";
-    productMetaEl.textContent = "Waiting for product metadata.";
+    productTitleEl.textContent = handle ? handle.replaceAll("-", " ") : "Open a product page";
+    productMetaEl.textContent = handle ? "Ready" : "Waiting";
+    productMetaEl.className = handle ? "status-pill is-ok" : "status-pill";
+    updatePrimaryActionState();
     return;
   }
 
   productTitleEl.textContent = product.title;
-  productDescriptionEl.textContent = product.description || "No description returned.";
-  const parts = [];
-  if (product.handle) parts.push(`Handle: ${product.handle}`);
-  if (product.vendor) parts.push(`Vendor: ${product.vendor}`);
-  productMetaEl.textContent = parts.length ? parts.join(" • ") : "Product metadata loaded.";
+  productMetaEl.textContent = "Ready";
+  productMetaEl.className = "status-pill is-ok";
+  updatePrimaryActionState();
+}
+
+function updatePrimaryActionState() {
+  if (!primaryActionButton) return;
+  const shopDomain = state.context?.shopDomain || state.auth?.shopDomain || inferShopDomainFromUrl(state.targetUrl);
+  const hasProduct = Boolean(state.context?.isProductPage || isLikelyProductUrl(state.targetUrl));
+
+  primaryActionButton.disabled = false;
+
+  if (!shopDomain) {
+    primaryActionButton.textContent = "Open Shopify Product Page";
+    primaryActionButton.dataset.action = "wait";
+    primaryActionButton.disabled = true;
+    return;
+  }
+
+  if (!state.auth?.authorized) {
+    primaryActionButton.textContent = "Connect Shopify Store";
+    primaryActionButton.dataset.action = "connect";
+    return;
+  }
+
+  if (!hasProduct) {
+    primaryActionButton.textContent = "Open Product Page";
+    primaryActionButton.dataset.action = "wait";
+    primaryActionButton.disabled = true;
+    return;
+  }
+
+  primaryActionButton.textContent = state.hasResults ? "Refresh Analysis" : "Analyze Reviews";
+  primaryActionButton.dataset.action = "analyze";
 }
 
 async function fetchJson(url, headers = {}) {
@@ -721,7 +758,7 @@ async function postJson(url, body, headers = {}) {
 
 async function syncReviews(data) {
   try {
-    const targetUrl = data?.url || state.targetUrl || urlInput.value;
+    const targetUrl = data?.url || state.targetUrl;
     const shopDomain = state.context?.shopDomain || state.auth?.shopDomain || inferShopDomainFromUrl(targetUrl);
     const handle = productHandleFromUrl(targetUrl);
     const reviews = Array.isArray(data?.reviews)
