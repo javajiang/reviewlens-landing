@@ -170,6 +170,79 @@
     .feature,.price,.note{
       padding:22px;border-radius:24px;border:1px solid var(--line);background:var(--panel)
     }
+    .extension-card{
+      display:grid;
+      grid-template-columns:1.1fr .9fr;
+      gap:20px;
+      align-items:stretch;
+      padding:24px;
+      border-radius:28px;
+      border:1px solid rgba(123,231,255,.22);
+      background:
+        radial-gradient(circle at 12% 18%, rgba(123,231,255,.12), transparent 28%),
+        linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
+      box-shadow:var(--shadow);
+    }
+    .extension-copy{
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      gap:18px;
+    }
+    .extension-copy h3{
+      margin:0;
+      font-family:"Space Grotesk",sans-serif;
+      font-size:clamp(28px,3vw,44px);
+      line-height:1;
+      letter-spacing:-.05em;
+    }
+    .extension-copy p{margin:0;color:var(--muted);line-height:1.7;max-width:58ch}
+    .extension-actions{display:flex;gap:12px;flex-wrap:wrap}
+    .extension-actions a{
+      text-decoration:none;
+      padding:13px 18px;
+      border-radius:999px;
+      font-weight:700;
+      border:1px solid var(--line);
+    }
+    .extension-actions .download{
+      color:white;
+      border-color:transparent;
+      background:linear-gradient(135deg,var(--cyan),var(--indigo));
+      box-shadow:0 20px 40px rgba(123,231,255,.14);
+    }
+    .extension-actions .guide{background:rgba(255,255,255,.05);color:var(--text)}
+    .install-steps{
+      display:grid;
+      gap:10px;
+      margin:0;
+      padding:0;
+      list-style:none;
+    }
+    .install-steps li{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      padding:14px;
+      border:1px solid rgba(255,255,255,.1);
+      border-radius:18px;
+      background:rgba(8,16,30,.42);
+      color:var(--muted);
+      line-height:1.45;
+    }
+    .install-steps span{
+      display:inline-grid;
+      place-items:center;
+      flex:0 0 auto;
+      width:26px;
+      height:26px;
+      border-radius:999px;
+      background:rgba(123,231,255,.12);
+      color:var(--cyan);
+      font-weight:800;
+      font-size:12px;
+    }
+    .install-steps strong{color:var(--text)}
     .feature .k{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#b6c0ff}
     .feature h3,.price h3{margin:12px 0 8px;font-family:"Space Grotesk",sans-serif;font-size:20px;letter-spacing:-.03em}
     .feature p,.price p,.note p{margin:0;color:var(--muted);line-height:1.65}
@@ -184,7 +257,7 @@
     .footer a{text-decoration:none}
     .footer a:hover{color:var(--text)}
     @media (max-width: 900px){
-      .snapshot-body,.grid-4,.grid-2{grid-template-columns:1fr}
+      .snapshot-body,.grid-4,.grid-2,.extension-card{grid-template-columns:1fr}
       .nav{border-radius:24px;align-items:flex-start;flex-direction:column}
       .nav-links{justify-content:flex-start}
       .hero{min-height:auto;padding:54px 0 24px}
@@ -202,6 +275,7 @@
       <nav class="nav-links" aria-label="Primary">
         <a href="#home">Home</a>
         <a href="#product">Product</a>
+        <a href="#extension">Extension</a>
               <a href="#pricing">Pricing</a>
               <a href="#contact">Contact</a>
               <button id="account-action" class="btn account-action" type="button">Sign in</button>
@@ -278,6 +352,31 @@
             <h3>Suggest improvements</h3>
             <p>Surface practical product improvement ideas based on complaint trends.</p>
           </article>
+        </div>
+      </section>
+
+      <section class="section" id="extension">
+        <div class="section-head">
+          <h2>Extension Download</h2>
+          <p>Install the Chrome extension, open a Shopify product page, then collect reviews and unlock AI analysis from the popup.</p>
+        </div>
+        <div class="extension-card">
+          <div class="extension-copy">
+            <div>
+              <h3>Download ReviewLens Extension</h3>
+              <p>Use the extension directly on your Shopify product page. Free users can collect and view reviews; Pro users can unlock full AI analysis.</p>
+            </div>
+            <div class="extension-actions">
+              <a class="download" href="/reviewlens-extension.zip" download>Download Extension</a>
+              <a class="guide" href="#extension">Installation Guide</a>
+            </div>
+          </div>
+          <ol class="install-steps" aria-label="Extension installation steps">
+            <li><span>1</span><div><strong>Download the zip file</strong><br>Save the ReviewLens extension package to your computer.</div></li>
+            <li><span>2</span><div><strong>Unzip the package</strong><br>Open the extracted folder that contains <code>manifest.json</code>.</div></li>
+            <li><span>3</span><div><strong>Open chrome://extensions</strong><br>Enable Developer mode in the top-right corner.</div></li>
+            <li><span>4</span><div><strong>Load the extension</strong><br>Click Load unpacked and select the unzipped folder.</div></li>
+          </ol>
         </div>
       </section>
 
