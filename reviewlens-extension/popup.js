@@ -418,9 +418,23 @@ async function runAnalysis(shopDomain) {
   }
 
   state.analysisResult = response.data.analysisResult || null;
+  state.billing = {
+    ...(state.billing || {}),
+    shopDomain,
+    paid: true,
+    plan: response.data.plan || state.billing?.plan || null,
+    usage: response.data.usage || state.billing?.usage || null,
+  };
   renderAnalysisResult();
   await persistState();
-  setStatus(response.data.cached ? "Loaded saved AI analysis." : "AI analysis completed.");
+  setStatus(response.data.cached ? "Loaded saved AI analysis." : analysisCompleteMessage(response.data.usage));
+}
+
+function analysisCompleteMessage(usage) {
+  if (!usage || usage.remaining === undefined || usage.limit === undefined) {
+    return "AI analysis completed.";
+  }
+  return `AI analysis completed. ${usage.remaining}/${usage.limit} analyses left this month.`;
 }
 
 function renderAnalysisResult() {
@@ -663,6 +677,7 @@ async function refreshAccessStatus() {
       shopDomain,
       paid: Boolean(data.paid),
       plan: data.plan || null,
+      usage: data.usage || null,
       updatedAt: data.updatedAt || null,
     };
   } catch (error) {
@@ -671,6 +686,7 @@ async function refreshAccessStatus() {
       shopDomain,
       paid: false,
       plan: null,
+      usage: null,
       updatedAt: null,
     };
   }

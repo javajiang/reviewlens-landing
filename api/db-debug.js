@@ -17,14 +17,18 @@ module.exports = async (req, res) => {
     await ensureSchema();
     const client = await getPool().connect();
     try {
-      const [events, subs, latestSub, latestEvent] = await Promise.all([
+      const [events, subs, usage, latestSub, latestEvent, latestUsage] = await Promise.all([
         client.query('select count(*)::int as count from creem_webhook_events'),
         client.query('select count(*)::int as count from subscriptions'),
+        client.query('select count(*)::int as count from analysis_usage'),
         client.query(
           'select customer_email, customer_id, product_id, plan, status, checkout_id, updated_at from subscriptions order by updated_at desc limit 5'
         ),
         client.query(
           'select event_id, event_type, customer_email, product_id, plan, status, processed_at from creem_webhook_events order by processed_at desc limit 5'
+        ),
+        client.query(
+          'select user_id, month_key, analysis_count, updated_at from analysis_usage order by updated_at desc limit 5'
         ),
       ]);
 
@@ -33,10 +37,12 @@ module.exports = async (req, res) => {
         counts: {
           creem_webhook_events: events.rows[0].count,
           subscriptions: subs.rows[0].count,
+          analysis_usage: usage.rows[0].count,
         },
         latest: {
           subscriptions: latestSub.rows,
           creem_webhook_events: latestEvent.rows,
+          analysis_usage: latestUsage.rows,
         },
       });
     } finally {

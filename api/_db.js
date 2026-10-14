@@ -109,6 +109,21 @@ async function ensureSchema() {
         CREATE INDEX IF NOT EXISTS checkout_sessions_user_id_idx
         ON checkout_sessions (user_id)
       `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS analysis_usage (
+          id BIGSERIAL PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          month_key TEXT NOT NULL,
+          analysis_count INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (user_id, month_key)
+        )
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS analysis_usage_user_id_idx
+        ON analysis_usage (user_id)
+      `);
     } finally {
       client.release();
     }

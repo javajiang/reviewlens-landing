@@ -9,6 +9,8 @@ const {
 } = require('./_analysis');
 const { handleFromUrl, normalizeHandle } = require('./reviews/_shared');
 
+const PRO_MONTHLY_ANALYSIS_LIMIT = 60;
+
 function isValidShop(shop) {
   return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop);
 }
@@ -31,6 +33,77 @@ function getModelConfig() {
     ).trim(),
     model: String(process.env.CLAUDE_MODEL || 'claude-sonnet-4-6').trim(),
   };
+}
+
+function getCurrentMonthKey(now = new Date()) {
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatUsage(row, limit = PRO_MONTHLY_ANALYSIS_LIMIT, month = getCurrentMonthKey()) {
+  const used = Number(row?.analysis_count || 0);
+  return {
+    month,
+    used,
+    limit,
+    remaining: Math.max(0, limit - used),
+  };
+}
+
+async function getAnalysisUsage(client, userId) {
+  const month = getCurrentMonthKey();
+  const result = await client.query(
+    `
+      SELECT analysis_count
+      FROM analysis_usage
+      WHERE user_id = $1
+        AND month_key = $2
+      LIMIT 1
+    `,
+    [userId, month]
+  );
+  return formatUsage(result.rows[0], PRO_MONTHLY_ANALYSIS_LIMIT, month);
+}
+
+async function reserveAnalysisUsage(client, userId) {
+  const month = getCurrentMonthKey();
+  const result = await client.query(
+    `
+      INSERT INTO analysis_usage (user_id, month_key, analysis_count)
+      VALUES ($1, $2, 1)
+      ON CONFLICT (user_id, month_key) DO UPDATE SET
+        analysis_count = analysis_usage.analysis_count + 1,
+        updated_at = NOW()
+      WHERE analysis_usage.analysis_count < $3
+      RETURNING analysis_count
+    `,
+    [userId, month, PRO_MONTHLY_ANALYSIS_LIMIT]
+  );
+  if (!result.rows[0]) {
+    return {
+      allowed: false,
+      usage: await getAnalysisUsage(client, userId),
+    };
+  }
+  return {
+    allowed: true,
+    usage: formatUsage(result.rows[0], PRO_MONTHLY_ANALYSIS_LIMIT, month),
+  };
+}
+
+async function releaseAnalysisUsage(client, userId) {
+  const month = getCurrentMonthKey();
+  const result = await client.query(
+    `
+      UPDATE analysis_usage
+      SET analysis_count = GREATEST(analysis_count - 1, 0),
+          updated_at = NOW()
+      WHERE user_id = $1
+        AND month_key = $2
+      RETURNING analysis_count
+    `,
+    [userId, month]
+  );
+  return formatUsage(result.rows[0], PRO_MONTHLY_ANALYSIS_LIMIT, month);
 }
 
 async function callAnalysisModel(prompt) {
@@ -102,11 +175,13 @@ async function getAccessStatus(shop, userId) {
       [userId]
     );
     const subscription = result.rows[0] || null;
+    const usage = subscription ? await getAnalysisUsage(client, userId) : null;
     return {
       authorized,
       paid: Boolean(subscription),
       plan: subscription?.plan || null,
       updatedAt: subscription?.updated_at || null,
+      usage,
     };
   } finally {
     client.release();
@@ -225,6 +300,7 @@ module.exports = async (req, res) => {
             authorized: true,
             paid: true,
             plan: access.plan,
+            usage: access.usage,
             cached: true,
             analysisStatus: row.analysis_status,
             analysisResult: row.analysis_result,
@@ -249,6 +325,19 @@ module.exports = async (req, res) => {
           totalReviews: reviews.length,
           ratingDistribution: buildReviewStats(reviews),
         };
+        const usageReservation = await reserveAnalysisUsage(client, user.id);
+        if (!usageReservation.allowed) {
+          res.status(429).json({
+            ok: false,
+            authorized: true,
+            paid: true,
+            plan: access.plan,
+            usage: usageReservation.usage,
+            error: `Monthly AI analysis limit reached (${usageReservation.usage.limit}/month)`,
+          });
+          return;
+        }
+
         const prompt = buildAnalysisPrompt({
           product: {
             title: row.product_title,
@@ -276,6 +365,7 @@ module.exports = async (req, res) => {
         try {
           modelResponse = await callAnalysisModel(prompt);
         } catch (error) {
+          await releaseAnalysisUsage(client, user.id);
           await client.query(
             `
               UPDATE review_data
@@ -304,6 +394,7 @@ module.exports = async (req, res) => {
         try {
           analysisResult = parseAnalysisResponse(modelResponse.data);
         } catch (error) {
+          await releaseAnalysisUsage(client, user.id);
           await client.query(
             `
               UPDATE review_data
@@ -326,25 +417,31 @@ module.exports = async (req, res) => {
           return;
         }
 
-        await client.query(
-          `
-            UPDATE review_data
-            SET analysis_status = 'completed',
-                analysis_result = $3::jsonb,
-                analysis_model = $4,
-                analysis_updated_at = NOW(),
-                updated_at = NOW()
-            WHERE shop_domain = $1
-              AND product_handle = $2
-          `,
-          [shop, productHandle, JSON.stringify(analysisResult), modelResponse.model]
-        );
+        try {
+          await client.query(
+            `
+              UPDATE review_data
+              SET analysis_status = 'completed',
+                  analysis_result = $3::jsonb,
+                  analysis_model = $4,
+                  analysis_updated_at = NOW(),
+                  updated_at = NOW()
+              WHERE shop_domain = $1
+                AND product_handle = $2
+            `,
+            [shop, productHandle, JSON.stringify(analysisResult), modelResponse.model]
+          );
+        } catch (error) {
+          await releaseAnalysisUsage(client, user.id);
+          throw error;
+        }
 
         res.status(200).json({
           ok: true,
           authorized: true,
           paid: true,
           plan: access.plan,
+          usage: usageReservation.usage,
           cached: false,
           analysisStatus: 'completed',
           analysisResult,
