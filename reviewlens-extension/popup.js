@@ -1,4 +1,4 @@
-const APP_BASE_URL = "https://reviewlensvercelsitev3.vercel.app";
+const APP_BASE_URL = "https://www.reviewlens.org";
 
 const state = {
   data: null,

@@ -1,6 +1,6 @@
 const AUTH_KEY = "reviewlens_user_session";
 const STORAGE_KEY = "reviewlens_popup_state";
-const APP_BASE_URL = "https://reviewlensvercelsitev3.vercel.app";
+const APP_BASE_URL = "https://www.reviewlens.org";
 
 function message() {
   return document.getElementById("message");
