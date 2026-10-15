@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ReviewLens Scraper Test</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="eyebrow">Internal tool</div>
+        <h1>Scraper Test</h1>
+        <p>Run the production ReviewLens crawler on the current public Shopify product page.</p>
+      </header>
+
+      <section class="target">
+        <div class="label">Current page</div>
+        <div id="page-title" class="page-title">Detecting...</div>
+        <div id="page-url" class="page-url"></div>
+        <button id="scrape" class="primary" type="button">Test Scrape</button>
+        <div id="status" class="status">No data is uploaded by this test extension.</div>
+      </section>
+
+      <section id="results" class="results is-hidden">
+        <div class="metrics">
+          <div><span>Total</span><strong id="total">0</strong></div>
+          <div><span>Negative</span><strong id="negative">0</strong></div>
+          <div><span>Positive</span><strong id="positive">0</strong></div>
+        </div>
+
+        <div class="actions">
+          <button id="export" type="button">Export JSON</button>
+          <button id="clear" type="button">Clear Result</button>
+        </div>
+
+        <details class="diagnostics" open>
+          <summary>Scraper diagnostics</summary>
+          <dl>
+            <div><dt>Detected providers</dt><dd id="providers">None</dd></div>
+            <div><dt>Frames inspected</dt><dd id="frames">0</dd></div>
+            <div><dt>Diagnosis</dt><dd id="diagnosis">No diagnosis</dd></div>
+          </dl>
+          <pre id="signals"></pre>
+        </details>
+
+        <div class="tabs" role="tablist" aria-label="Review filter">
+          <button class="tab active" data-filter="all" type="button">All</button>
+          <button class="tab" data-filter="negative" type="button">Negative</button>
+          <button class="tab" data-filter="positive" type="button">Positive</button>
+        </div>
+        <section id="review-list" class="review-list"></section>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
