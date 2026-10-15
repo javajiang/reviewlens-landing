@@ -76,15 +76,14 @@
       font:inherit;
     }
     .hero{
-      min-height:84vh;display:flex;align-items:center;padding:72px 0 36px;
+      min-height:78vh;display:flex;align-items:center;padding:72px 0 36px;
     }
     .hero-inner{
       width:100%;
       display:grid;
-      grid-template-columns:1fr;
-      gap:28px;
-      justify-items:center;
-      text-align:center;
+      grid-template-columns:1.02fr .98fr;
+      gap:48px;
+      align-items:center;
     }
     .eyebrow{
       display:inline-flex;align-items:center;gap:8px;
@@ -107,6 +106,63 @@
       font-size:clamp(17px,2vw,21px);
       line-height:1.7;color:var(--muted)
     }
+    .hero-copy{display:grid;gap:22px}
+    .hero-copy .lead{margin:0}
+    .hero-copy .cta{justify-content:flex-start}
+    .hero-demo{
+      padding:12px;
+      border:1px solid rgba(123,231,255,.24);
+      border-radius:28px;
+      background:
+        radial-gradient(circle at 18% 14%, rgba(123,231,255,.13), transparent 30%),
+        linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.035));
+      box-shadow:var(--shadow);
+      transform:rotate(1.2deg);
+    }
+    .hero-demo-window{
+      overflow:hidden;
+      border-radius:20px;
+      background:linear-gradient(180deg, #101a2a, #0b1320);
+      border:1px solid rgba(255,255,255,.1);
+    }
+    .hero-demo-bar{
+      display:flex;align-items:center;gap:7px;
+      padding:14px 16px;
+      color:var(--soft);
+      font-size:12px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+    }
+    .hero-demo-bar i{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.24)}
+    .hero-demo-bar span{margin-left:6px}
+    .hero-demo-stage{
+      min-height:390px;
+      display:grid;
+      place-items:center;
+      padding:26px;
+      background:
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+      background-size:28px 28px;
+    }
+    .demo-placeholder{
+      width:min(100%,330px);
+      padding:20px;
+      border-radius:18px;
+      background:rgba(10,18,31,.94);
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow:0 24px 55px rgba(0,0,0,.28);
+    }
+    .demo-placeholder-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+    .demo-placeholder h3{margin:5px 0 0;font-family:"Space Grotesk",sans-serif;font-size:22px;letter-spacing:-.04em}
+    .demo-label{color:var(--cyan);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+    .demo-product{margin-top:18px;padding:13px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+    .demo-product strong{display:block;margin-top:5px;font-size:14px}
+    .demo-button{margin-top:13px;padding:12px;border-radius:11px;text-align:center;font-weight:700;color:#08101e;background:linear-gradient(135deg,var(--cyan),var(--indigo))}
+    .demo-result{display:grid;gap:8px;margin-top:12px}
+    .demo-result div{padding:11px;border-radius:11px;background:rgba(239,123,182,.1);border:1px solid rgba(239,123,182,.18)}
+    .demo-result strong{display:block;font-size:12px;color:#ffd4e8}
+    .demo-result span{display:block;margin-top:4px;color:var(--muted);font-size:12px;line-height:1.45}
+    .demo-caption{margin:14px 2px 0;color:var(--soft);font-size:12px;text-align:center}
     .status{
       display:inline-flex;align-items:center;gap:10px;
       padding:10px 16px;border-radius:999px;
@@ -258,6 +314,10 @@
     .footer a:hover{color:var(--text)}
     @media (max-width: 900px){
       .snapshot-body,.grid-4,.grid-2,.extension-card{grid-template-columns:1fr}
+      .hero-inner{grid-template-columns:1fr;gap:32px}
+      .hero-copy{text-align:center;justify-items:center}
+      .hero-copy .cta{justify-content:center}
+      .hero-demo{width:min(100%,600px);transform:none}
       .nav{border-radius:24px;align-items:flex-start;flex-direction:column}
       .nav-links{justify-content:flex-start}
       .hero{min-height:auto;padding:54px 0 24px}
@@ -287,14 +347,40 @@
     <main>
       <section class="hero" id="home">
         <div class="hero-inner">
-          <div class="eyebrow"><i></i> product is live</div>
-          <h1>Turn reviews into product improvements.</h1>
-          <p class="lead">ReviewLens extracts e-commerce reviews, groups repeated complaints, and turns customer feedback into clear product improvement ideas.</p>
-          <div class="status"><span></span> Available now</div>
-          <div class="cta">
-            <a class="primary" href="#extension">Download Extension</a>
-            <a class="primary" href="#pricing">View Pricing</a>
-            <a class="secondary" href="mailto:support@voicefix.org">Contact Support</a>
+          <div class="hero-copy">
+            <div class="eyebrow"><i></i> built for Shopify product teams</div>
+            <h1>Turn customer reviews into better products.</h1>
+            <p class="lead">ReviewLens collects reviews from the Shopify product page you are viewing, finds clear product issues, and suggests practical improvements.</p>
+            <div class="status"><span></span> Available now</div>
+            <div class="cta">
+              <a class="primary" href="#extension">Download Extension</a>
+              <a class="primary" href="#pricing">View Pricing</a>
+              <a class="secondary" href="mailto:support@voicefix.org">Contact Support</a>
+            </div>
+          </div>
+          <div class="hero-demo" aria-label="ReviewLens product demonstration placeholder">
+            <div class="hero-demo-window">
+              <div class="hero-demo-bar"><i></i><i></i><i></i><span>ReviewLens product demo</span></div>
+              <div class="hero-demo-stage">
+                <div class="demo-placeholder">
+                  <div class="demo-placeholder-head">
+                    <div><div class="demo-label">ReviewLens</div><h3>Find product issues.</h3></div>
+                    <span class="demo-label">Demo</span>
+                  </div>
+                  <div class="demo-product">
+                    <div class="demo-label">Current product</div>
+                    <strong>Wireless Headphones</strong>
+                    <span class="soft">128 customer reviews detected</span>
+                  </div>
+                  <div class="demo-button">Analyze Reviews</div>
+                  <div class="demo-result">
+                    <div><strong>1. Uncomfortable fit</strong><span>Users report pressure during longer sessions.</span></div>
+                    <div><strong>2. Battery inconsistency</strong><span>Improve remaining-time accuracy.</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="demo-caption">A short product demo will play here automatically.</div>
           </div>
         </div>
       </section>
