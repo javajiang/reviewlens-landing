@@ -15,6 +15,12 @@ const totalEl = document.getElementById("total");
 const negativeEl = document.getElementById("negative");
 const positiveEl = document.getElementById("positive");
 const providersEl = document.getElementById("providers");
+const primaryProviderEl = document.getElementById("primary-provider");
+const confidenceEl = document.getElementById("confidence");
+const loadMethodEl = document.getElementById("load-method");
+const expectedReviewsEl = document.getElementById("expected-reviews");
+const loadedReviewsEl = document.getElementById("loaded-reviews");
+const stoppedReasonEl = document.getElementById("stopped-reason");
 const framesEl = document.getElementById("frames");
 const diagnosisEl = document.getElementById("diagnosis");
 const signalsEl = document.getElementById("signals");
@@ -83,6 +89,12 @@ function renderResult() {
   const debug = result.debug || {};
   const providers = Array.isArray(debug.detectedProviders) ? debug.detectedProviders : [];
   providersEl.textContent = providers.length ? providers.join(", ") : "None detected";
+  primaryProviderEl.textContent = debug.providerDetection?.primary || "Unknown";
+  confidenceEl.textContent = debug.providerDetection?.confidence || "Unknown";
+  loadMethodEl.textContent = debug.loadMore?.method || "None";
+  expectedReviewsEl.textContent = formatDiagnosticValue(debug.loadMore?.expectedCount);
+  loadedReviewsEl.textContent = formatDiagnosticValue(debug.loadMore?.finalDomCount);
+  stoppedReasonEl.textContent = debug.loadMore?.stoppedReason || "Not reported";
   framesEl.textContent = String(debug.iframeCount || 0);
   diagnosisEl.textContent = debug.diagnosis || "No diagnosis returned";
   signalsEl.textContent = JSON.stringify(debug.visibleReviewCounts || {}, null, 2);
@@ -162,6 +174,10 @@ function safeHost(value) {
 function clampRating(value) {
   const rating = Math.round(Number(value) || 0);
   return Math.min(5, Math.max(0, rating));
+}
+
+function formatDiagnosticValue(value) {
+  return value === null || value === undefined || value === "" ? "Unknown" : String(value);
 }
 
 function escapeHtml(value) {

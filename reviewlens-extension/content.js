@@ -3,6 +3,8 @@
 
   const REVIEW_URL_PATTERN = /review|reviews|judgeme|judge\.me|loox|yotpo|stamped|okendo|bazaarvoice|powerreviews/i;
   const CAPTURE_LIMIT = 100;
+  const JUDGE_ME_REVIEW_LIMIT = 100;
+  const JUDGE_ME_LOAD_TIMEOUT_MS = 60_000;
   const state = {
     networkPayloads: [],
     hooksInstalled: false,
@@ -241,6 +243,8 @@
       visibleReviewCounts: {},
       iframeCount: 0,
       detectedProviders: [],
+      providerDetection: null,
+      loadMore: null,
       diagnosis: "",
     };
 
@@ -252,7 +256,10 @@
       };
     }
 
-    await expandVisibleReviewWidgets();
+    const providerDetection = detectReviewProvider();
+    const expansion = providerDetection.primary === "judge.me"
+      ? await expandJudgeMeReviews()
+      : await expandGenericReviewWidgets();
     await waitForOkendoMetadata(5_000);
 
     const html = document.documentElement.outerHTML;
@@ -260,7 +267,13 @@
     const visibleReviews = extractVisibleReviews(document);
     const frameReviews = extractFrameReviews();
     const providerReviews = extractProviderReviews(state.networkPayloads);
-    const allReviews = dedupeReviews([...jsonLdReviews, ...visibleReviews, ...frameReviews, ...providerReviews]);
+    const allReviews = dedupeReviews([
+      ...(expansion.reviews || []),
+      ...jsonLdReviews,
+      ...visibleReviews,
+      ...frameReviews,
+      ...providerReviews,
+    ]);
     const reviews = allReviews.sort((a, b) => reviewRank(a) - reviewRank(b) || (ratingValue(a) - ratingValue(b)));
 
     const negative = reviews.filter((review) => ratingValue(review) <= 3);
@@ -269,6 +282,8 @@
     debug.visibleReviewCounts = countVisibleSignals();
     debug.iframeCount = document.querySelectorAll("iframe").length;
     debug.detectedProviders = inferProviders(state.networkPayloads, debug.visibleReviewCounts);
+    debug.providerDetection = providerDetection;
+    debug.loadMore = expansion.diagnostics;
     debug.diagnosis = diagnoseScrape(debug.iframeCount, debug.visibleReviewCounts, state.networkPayloads, reviews.length);
 
     return {
@@ -325,7 +340,169 @@
     return /shopify|cdn\.shopify\.com/i.test(document.documentElement.innerHTML);
   }
 
-  async function expandVisibleReviewWidgets() {
+  function detectReviewProvider() {
+    const candidates = [];
+
+    addProviderCandidate(candidates, "judge.me", ".jdgm-rev-widg", "Judge.me review widget");
+    addProviderCandidate(candidates, "judge.me", ".jdgm-rev", "Judge.me review items");
+    addProviderCandidate(candidates, "judge.me", ".jdgm-paginate", "Judge.me pagination");
+    addProviderCandidate(candidates, "loox", ".loox-review, .grid-item.clearfix", "Loox review items");
+    addProviderCandidate(candidates, "yotpo", ".yotpo-review", "Yotpo review items");
+    addProviderCandidate(candidates, "stamped", ".stamped-review, .stamped-product-reviews-badge", "Stamped review widget");
+    addProviderCandidate(candidates, "okendo", ".okeReviews, .oke-w-reviews-list-item, .okeReviews-review", "Okendo review widget");
+    addProviderCandidate(candidates, "junip", ".junip-review-list-item-container, .junip-review, .junip-product-review", "Junip review widget");
+
+    const grouped = new Map();
+    for (const candidate of candidates) {
+      const signals = grouped.get(candidate.provider) || [];
+      signals.push(candidate.signal);
+      grouped.set(candidate.provider, signals);
+    }
+
+    const ranked = Array.from(grouped.entries())
+      .map(([provider, signals]) => ({ provider, signals }))
+      .sort((left, right) => right.signals.length - left.signals.length);
+    const primary = ranked[0] || null;
+
+    return {
+      primary: primary?.provider || "unknown",
+      confidence: primary ? (primary.signals.length >= 2 ? "high" : "medium") : "unknown",
+      signals: primary?.signals || [],
+      candidates: ranked,
+    };
+  }
+
+  function addProviderCandidate(candidates, provider, selector, signal) {
+    if (document.querySelector(selector)) candidates.push({ provider, signal });
+  }
+
+  async function expandJudgeMeReviews() {
+    const widget = document.querySelector(".jdgm-rev-widg");
+    const pagination = document.querySelector(".jdgm-paginate");
+    const expectedCount = positiveInteger(widget?.dataset?.numberOfReviews);
+    const perPage = positiveInteger(pagination?.dataset?.perPage) || 5;
+    const initialCount = getJudgeMeReviewCount();
+    const targetCount = Math.min(expectedCount || JUDGE_ME_REVIEW_LIMIT, JUDGE_ME_REVIEW_LIMIT);
+    const reviews = extractJudgeMeReviews();
+    const errors = [];
+    const startedAt = Date.now();
+    let attempts = 0;
+    let pagesLoaded = 0;
+    let stoppedReason = "";
+
+    while (getJudgeMeReviewCount() < targetCount) {
+      if (Date.now() - startedAt >= JUDGE_ME_LOAD_TIMEOUT_MS) {
+        stoppedReason = "timeout";
+        break;
+      }
+
+      const button = findJudgeMeLoadMoreButton();
+      if (!button) {
+        stoppedReason = "button_missing";
+        break;
+      }
+
+      const beforeCount = getJudgeMeReviewCount();
+      const beforePage = positiveInteger(button.dataset?.page);
+      attempts += 1;
+      button.scrollIntoView({ block: "center" });
+      button.click();
+
+      const progressed = await waitForJudgeMeProgress({
+        beforeCount,
+        beforePage,
+        previousButton: button,
+        timeoutMs: 5_000,
+      });
+
+      reviews.push(...extractJudgeMeReviews());
+      if (!progressed) {
+        errors.push(`Load More attempt ${attempts} did not add reviews or advance the page.`);
+        stoppedReason = "no_progress";
+        break;
+      }
+
+      pagesLoaded += 1;
+    }
+
+    const finalCount = getJudgeMeReviewCount();
+    if (!stoppedReason) {
+      if (expectedCount && finalCount >= expectedCount) {
+        stoppedReason = "expected_count_reached";
+      } else if (finalCount >= JUDGE_ME_REVIEW_LIMIT) {
+        stoppedReason = "configured_limit_reached";
+      } else {
+        stoppedReason = "completed";
+      }
+    }
+
+    return {
+      reviews: dedupeReviews(reviews),
+      diagnostics: {
+        provider: "judge.me",
+        method: "provider_load_more",
+        expectedCount,
+        configuredLimit: JUDGE_ME_REVIEW_LIMIT,
+        targetCount,
+        perPage,
+        initialCount,
+        finalDomCount: finalCount,
+        attempts,
+        pagesLoaded,
+        complete: Boolean(expectedCount && finalCount >= expectedCount),
+        stoppedReason,
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  function findJudgeMeLoadMoreButton() {
+    const candidates = Array.from(document.querySelectorAll(
+      ".jdgm-paginate__load-more, .jdgm-paginate a[role='button']"
+    ));
+
+    return candidates.find((node) => {
+      if (!node.isConnected) return false;
+      if (node.matches("[disabled], [aria-disabled='true']")) return false;
+      const style = window.getComputedStyle(node);
+      return style.display !== "none" && style.visibility !== "hidden";
+    }) || null;
+  }
+
+  function getJudgeMeReviewCount() {
+    return document.querySelectorAll(".jdgm-rev").length;
+  }
+
+  function extractJudgeMeReviews() {
+    return Array.from(document.querySelectorAll(".jdgm-rev"))
+      .map((node) => extractReviewFromContainer(node))
+      .filter(Boolean);
+  }
+
+  async function waitForJudgeMeProgress({ beforeCount, beforePage, previousButton, timeoutMs }) {
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+      await sleep(250);
+      if (getJudgeMeReviewCount() > beforeCount) return true;
+
+      const currentButton = findJudgeMeLoadMoreButton();
+      if (!currentButton && !previousButton.isConnected) return true;
+      const currentPage = positiveInteger(currentButton?.dataset?.page);
+      if (beforePage && currentPage && currentPage > beforePage) return true;
+      if (currentButton && currentButton !== previousButton) return true;
+    }
+
+    return false;
+  }
+
+  function positiveInteger(value) {
+    const number = Number.parseInt(String(value || ""), 10);
+    return Number.isFinite(number) && number > 0 ? number : null;
+  }
+
+  async function expandGenericReviewWidgets() {
     let idleRounds = 0;
 
     for (let i = 0; i < 18; i += 1) {
@@ -355,6 +532,21 @@
       window.scrollTo({ top: document.body.scrollHeight });
       await sleep(700);
     }
+
+    return {
+      reviews: [],
+      diagnostics: {
+        provider: "generic",
+        method: "generic_load_more",
+        initialCount: null,
+        finalDomCount: getReviewNodeCount(),
+        attempts: null,
+        pagesLoaded: null,
+        complete: null,
+        stoppedReason: "generic_flow_finished",
+        errors: [],
+      },
+    };
   }
 
   function findReviewActionElement() {
@@ -368,8 +560,6 @@
           "button",
           "a",
           "[role='button']",
-          "[tabindex='0']",
-          "div",
         ].join(",")
       )
     );
