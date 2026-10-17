@@ -93,7 +93,9 @@ function renderResult() {
   confidenceEl.textContent = debug.providerDetection?.confidence || "Unknown";
   loadMethodEl.textContent = debug.loadMore?.method || "None";
   expectedReviewsEl.textContent = formatDiagnosticValue(debug.loadMore?.expectedCount);
-  loadedReviewsEl.textContent = formatDiagnosticValue(debug.loadMore?.finalDomCount);
+  loadedReviewsEl.textContent = formatDiagnosticValue(
+    debug.loadMore?.extractedCount ?? debug.loadMore?.finalDomCount
+  );
   stoppedReasonEl.textContent = debug.loadMore?.stoppedReason || "Not reported";
   framesEl.textContent = String(debug.iframeCount || 0);
   diagnosisEl.textContent = debug.diagnosis || "No diagnosis returned";
