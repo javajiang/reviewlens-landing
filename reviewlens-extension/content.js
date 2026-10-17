@@ -7,9 +7,12 @@
   const JUDGE_ME_LOAD_TIMEOUT_MS = 60_000;
   const state = {
     networkPayloads: [],
+    looxInlineSnapshots: [],
+    looxExpectedCount: null,
     hooksInstalled: false,
   };
 
+  installLooxSnapshotObserver();
   installPageHooks();
   window.addEventListener("message", onWindowMessage);
 
@@ -353,9 +356,13 @@
     addProviderCandidate(candidates, "judge.me", ".jdgm-paginate", "Judge.me pagination");
     addProviderCandidate(candidates, "loox", ".loox-review, .grid-item.clearfix", "Loox review items");
     addProviderCandidate(candidates, "loox", "#loox-inline-reviews, .loox-reviews", "Loox review wrapper");
+    addProviderCandidate(candidates, "loox", ".loox-rating[data-testid='loox-rating-widget'], script[src*='loox.io']", "Loox widget script or rating");
     addProviderCandidate(candidates, "loox", "[data-loox-hash]", "Loox data hash");
     addProviderHtmlCandidate(candidates, "loox", /"namespace"\s*:\s*"loox"[\s\S]{0,200}"key"\s*:\s*"reviews"/i, "Loox embedded reviews metafield");
     addProviderHtmlCandidate(candidates, "loox", /id=\\?["']loox-inline-reviews/i, "Loox embedded review markup");
+    if (state.looxInlineSnapshots.length > 0) {
+      candidates.push({ provider: "loox", signal: "Captured Loox inline review snapshot" });
+    }
     addProviderCandidate(candidates, "yotpo", ".yotpo-review", "Yotpo review items");
     addProviderCandidate(candidates, "stamped", ".stamped-review, .stamped-product-reviews-badge", "Stamped review widget");
     addProviderCandidate(candidates, "okendo", ".okeReviews, .oke-w-reviews-list-item, .okeReviews-review", "Okendo review widget");
@@ -387,6 +394,53 @@
 
   function addProviderHtmlCandidate(candidates, provider, pattern, signal) {
     if (pattern.test(document.documentElement.outerHTML)) candidates.push({ provider, signal });
+  }
+
+  function installLooxSnapshotObserver() {
+    const capture = (root) => {
+      if (!root) return;
+      const nodes = [];
+      if (root.nodeType === Node.ELEMENT_NODE && root.matches("#loox-inline-reviews")) {
+        nodes.push(root);
+      }
+      if (typeof root.querySelectorAll === "function") {
+        nodes.push(...root.querySelectorAll("#loox-inline-reviews"));
+        const rating = root.querySelector(".loox-rating[data-raters]");
+        const count = positiveInteger(rating?.dataset?.raters);
+        if (count) state.looxExpectedCount = Math.max(state.looxExpectedCount || 0, count);
+      }
+
+      for (const node of nodes) {
+        const snapshot = node.outerHTML || "";
+        const previous = state.looxInlineSnapshots[0] || "";
+        if (snapshot.includes("class=\"review\"") && snapshot.length > previous.length) {
+          state.looxInlineSnapshots = [snapshot];
+        }
+      }
+    };
+
+    const start = () => {
+      if (!document.documentElement) {
+        setTimeout(start, 0);
+        return;
+      }
+
+      capture(document.documentElement);
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) capture(node);
+          if (mutation.target?.nodeType === Node.ELEMENT_NODE) {
+            capture(mutation.target.closest?.("#loox-inline-reviews"));
+          }
+        }
+      });
+      observer.observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+      });
+    };
+
+    start();
   }
 
   async function expandJudgeMeReviews() {
@@ -518,7 +572,10 @@
   async function collectLooxReviews() {
     const html = document.documentElement.outerHTML;
     const embedded = extractEmbeddedLooxReviews(html);
-    const inlineReviews = extractInlineLooxReviews(document);
+    const inlineReviews = dedupeLooxReviews([
+      ...extractInlineLooxReviews(document),
+      ...state.looxInlineSnapshots.flatMap((snapshot) => extractInlineLooxReviewsFromHtml(snapshot)),
+    ]);
     const legacyReviews = extractLegacyLooxReviews();
     const reviews = dedupeLooxReviews([
       ...embedded.reviews,
@@ -597,6 +654,11 @@
       .filter(Boolean);
   }
 
+  function extractInlineLooxReviewsFromHtml(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return extractInlineLooxReviews(doc);
+  }
+
   function extractEmbeddedLooxReview(container, source = "loox-embedded") {
     const body = pickText(container, [".review_text", ".review-text", "[itemprop='reviewBody']"]);
     if (clean(body).length < 12) return null;
@@ -621,6 +683,7 @@
     const counts = Array.from(document.querySelectorAll(".loox-rating[data-raters]"))
       .map((node) => positiveInteger(node.dataset?.raters))
       .filter(Boolean);
+    if (state.looxExpectedCount) counts.push(state.looxExpectedCount);
     const metafieldMatch = html.match(
       /"namespace"\s*:\s*"loox"\s*,\s*"key"\s*:\s*"num_reviews"\s*,\s*"value"\s*:\s*"(\d+)"/i
     );
