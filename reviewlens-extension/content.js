@@ -278,8 +278,8 @@
     ]);
     const reviews = allReviews.sort((a, b) => reviewRank(a) - reviewRank(b) || (ratingValue(a) - ratingValue(b)));
 
-    const negative = reviews.filter((review) => ratingValue(review) <= 3);
-    const positive = reviews.filter((review) => ratingValue(review) >= 4);
+    const negative = reviews.filter((review) => Number.isFinite(review?.rating) && review.rating <= 3);
+    const positive = reviews.filter((review) => Number.isFinite(review?.rating) && review.rating >= 4);
 
     debug.visibleReviewCounts = countVisibleSignals();
     debug.iframeCount = document.querySelectorAll("iframe").length;
@@ -511,37 +511,45 @@
   }
 
   function positiveInteger(value) {
-    const number = Number.parseInt(String(value || ""), 10);
+    const number = Number.parseInt(String(value || "").replaceAll(",", ""), 10);
     return Number.isFinite(number) && number > 0 ? number : null;
   }
 
   async function collectLooxReviews() {
     const html = document.documentElement.outerHTML;
     const embedded = extractEmbeddedLooxReviews(html);
+    const inlineReviews = extractInlineLooxReviews(document);
     const legacyReviews = extractLegacyLooxReviews();
     const reviews = dedupeLooxReviews([
       ...embedded.reviews,
+      ...inlineReviews,
       ...legacyReviews,
     ]);
+    const methods = [];
+    if (embedded.blocksFound > 0) methods.push("embedded_metafield");
+    if (inlineReviews.length > 0) methods.push("inline_html");
+    if (legacyReviews.length > 0) methods.push("legacy_dom");
+    methods.push("network");
 
     return {
       reviews,
       diagnostics: {
         provider: "loox",
-        method: embedded.blocksFound > 0
-          ? "embedded_metafield+legacy_dom+network"
-          : "legacy_dom+network",
-        expectedCount: embedded.expectedCount,
+        method: methods.join("+"),
+        expectedCount: extractLooxExpectedCount(html),
         embeddedCount: embedded.reviews.length,
         embeddedBlocks: embedded.blocksFound,
+        inlineCount: inlineReviews.length,
         finalDomCount: legacyReviews.length,
         extractedCount: reviews.length,
         attempts: 0,
         pagesLoaded: 0,
         complete: false,
-        stoppedReason: embedded.blocksFound > 0
-          ? "embedded_snapshot_extracted"
-          : "legacy_snapshot_extracted",
+        stoppedReason: inlineReviews.length > 0
+          ? "inline_snapshot_extracted"
+          : embedded.blocksFound > 0
+            ? "embedded_snapshot_extracted"
+            : "legacy_snapshot_extracted",
         errors: embedded.errors,
       },
     };
@@ -576,18 +584,25 @@
 
     return {
       reviews: dedupeLooxReviews(reviews),
-      expectedCount: extractLooxExpectedCount(html),
       blocksFound: values.length,
       errors,
     };
   }
 
-  function extractEmbeddedLooxReview(container) {
+  function extractInlineLooxReviews(root) {
+    return Array.from(root.querySelectorAll(
+      "#loox-inline-reviews .review, .loox-reviews-default #loox-inline-reviews .review"
+    ))
+      .map((container) => extractEmbeddedLooxReview(container, "loox-inline"))
+      .filter(Boolean);
+  }
+
+  function extractEmbeddedLooxReview(container, source = "loox-embedded") {
     const body = pickText(container, [".review_text", ".review-text", "[itemprop='reviewBody']"]);
     if (clean(body).length < 12) return null;
 
     return normalizeReview({
-      source: "loox-embedded",
+      source,
       title: pickText(container, [".review_title", ".review-title", "[itemprop='name']"]),
       body,
       author: pickText(container, [".name", ".reviewer-name", "[itemprop='author']"]),
@@ -603,10 +618,16 @@
   }
 
   function extractLooxExpectedCount(html) {
-    const match = html.match(
+    const counts = Array.from(document.querySelectorAll(".loox-rating[data-raters]"))
+      .map((node) => positiveInteger(node.dataset?.raters))
+      .filter(Boolean);
+    const metafieldMatch = html.match(
       /"namespace"\s*:\s*"loox"\s*,\s*"key"\s*:\s*"num_reviews"\s*,\s*"value"\s*:\s*"(\d+)"/i
     );
-    return positiveInteger(match?.[1]);
+    const metafieldCount = positiveInteger(metafieldMatch?.[1]);
+    if (metafieldCount) counts.push(metafieldCount);
+
+    return counts.length > 0 ? Math.max(...counts) : null;
   }
 
   function dedupeLooxReviews(reviews) {
@@ -846,7 +867,7 @@
       okendo: document.querySelectorAll(".oke-w-reviews-list-item, .okeReviews-review").length,
       junip: document.querySelectorAll(".junip-review-list-item-container, .junip-review, .junip-product-review").length,
       judgeMe: document.querySelectorAll(".jdgm-rev, .jdgm-full-rev").length,
-      loox: document.querySelectorAll(".loox-review, .grid-item.clearfix").length,
+      loox: document.querySelectorAll(".loox-review, .grid-item.clearfix, #loox-inline-reviews .review").length,
       yotpo: document.querySelectorAll(".yotpo-review").length,
       stamped: document.querySelectorAll(".stamped-review").length,
       stampedBadge: document.querySelectorAll(".stamped-product-reviews-badge").length,
@@ -1183,6 +1204,7 @@
   }
 
   function reviewRank(review) {
+    if (!Number.isFinite(review?.rating)) return 1;
     const rating = ratingValue(review);
     return rating <= 3 ? 0 : 1;
   }
