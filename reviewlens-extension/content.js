@@ -5,6 +5,8 @@
   const CAPTURE_LIMIT = 100;
   const JUDGE_ME_REVIEW_LIMIT = 100;
   const JUDGE_ME_LOAD_TIMEOUT_MS = 60_000;
+  const YOTPO_REVIEW_LIMIT = 100;
+  const YOTPO_LOAD_TIMEOUT_MS = 60_000;
   const state = {
     networkPayloads: [],
     looxInlineSnapshots: [],
@@ -264,7 +266,9 @@
       ? await expandJudgeMeReviews()
       : providerDetection.primary === "loox"
         ? await collectLooxReviews()
-        : await expandGenericReviewWidgets();
+        : providerDetection.primary === "yotpo"
+          ? await expandYotpoReviews()
+          : await expandGenericReviewWidgets();
     await waitForOkendoMetadata(5_000);
 
     const html = document.documentElement.outerHTML;
@@ -364,6 +368,9 @@
       candidates.push({ provider: "loox", signal: "Captured Loox inline review snapshot" });
     }
     addProviderCandidate(candidates, "yotpo", ".yotpo-review", "Yotpo review items");
+    addProviderCandidate(candidates, "yotpo", ".yotpo-widget-instance, .yotpo-main-widget, [data-yotpo-instance-id]", "Yotpo review widget");
+    addProviderCandidate(candidates, "yotpo", ".yotpo-reviews-pagination-container, .yotpo-pager, [class*='yotpo'][class*='pagination']", "Yotpo pagination");
+    addProviderCandidate(candidates, "yotpo", "script[src*='yotpo.com'], script[src*='yotpoassets.com']", "Yotpo widget script");
     addProviderCandidate(candidates, "stamped", ".stamped-review, .stamped-product-reviews-badge", "Stamped review widget");
     addProviderCandidate(candidates, "okendo", ".okeReviews, .oke-w-reviews-list-item, .okeReviews-review", "Okendo review widget");
     addProviderCandidate(candidates, "junip", ".junip-review-list-item-container, .junip-review, .junip-product-review", "Junip review widget");
@@ -708,6 +715,242 @@
     return results;
   }
 
+  async function expandYotpoReviews() {
+    const reviews = [];
+    const errors = [];
+    const startedAt = Date.now();
+    const expectedCount = extractYotpoExpectedCount();
+    const initialCount = getYotpoReviewCount();
+    let attempts = 0;
+    let pagesLoaded = 0;
+    let stoppedReason = "";
+
+    const firstPageButton = findYotpoPageButton(1);
+    const currentPage = getYotpoCurrentPage();
+    if (firstPageButton && currentPage && currentPage > 1) {
+      const beforeFingerprint = getYotpoPageFingerprint();
+      firstPageButton.scrollIntoView({ block: "center" });
+      firstPageButton.click();
+      const reset = await waitForYotpoPageChange(beforeFingerprint, 5_000);
+      if (!reset) errors.push("Unable to return Yotpo pagination to page 1.");
+    }
+
+    while (reviews.length < YOTPO_REVIEW_LIMIT) {
+      reviews.push(...extractYotpoReviews());
+      const uniqueReviews = dedupeReviews(reviews);
+      reviews.length = 0;
+      reviews.push(...uniqueReviews);
+
+      if (reviews.length >= YOTPO_REVIEW_LIMIT) {
+        stoppedReason = "configured_limit_reached";
+        break;
+      }
+      if (Date.now() - startedAt >= YOTPO_LOAD_TIMEOUT_MS) {
+        stoppedReason = "timeout";
+        break;
+      }
+
+      const nextButton = findYotpoNextButton();
+      if (!nextButton) {
+        stoppedReason = "next_button_missing";
+        break;
+      }
+
+      const beforeFingerprint = getYotpoPageFingerprint();
+      attempts += 1;
+      nextButton.scrollIntoView({ block: "center" });
+      nextButton.click();
+
+      const progressed = await waitForYotpoPageChange(beforeFingerprint, 5_000);
+      if (!progressed) {
+        errors.push(`Next page attempt ${attempts} did not change the Yotpo reviews.`);
+        stoppedReason = "no_progress";
+        break;
+      }
+
+      pagesLoaded += 1;
+    }
+
+    if (!stoppedReason) stoppedReason = "completed";
+
+    return {
+      reviews: dedupeReviews(reviews).slice(0, YOTPO_REVIEW_LIMIT),
+      diagnostics: {
+        provider: "yotpo",
+        method: "provider_pagination",
+        expectedCount,
+        configuredLimit: YOTPO_REVIEW_LIMIT,
+        initialCount,
+        finalDomCount: getYotpoReviewCount(),
+        extractedCount: Math.min(reviews.length, YOTPO_REVIEW_LIMIT),
+        attempts,
+        pagesLoaded,
+        complete: Boolean(expectedCount && reviews.length >= expectedCount),
+        stoppedReason,
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  function extractYotpoReviews() {
+    return Array.from(document.querySelectorAll(".yotpo-review"))
+      .map((node) => extractReviewFromContainer(node))
+      .filter(Boolean);
+  }
+
+  function getYotpoReviewCount() {
+    return document.querySelectorAll(".yotpo-review").length;
+  }
+
+  function getYotpoPageFingerprint() {
+    return extractYotpoReviews()
+      .map((review) => reviewContentKey(review))
+      .join("##")
+      .slice(0, 20_000);
+  }
+
+  function getYotpoCurrentPage() {
+    return positiveInteger(clean(findYotpoCurrentPageNode()?.textContent));
+  }
+
+  function findYotpoCurrentPageNode() {
+    const explicit = document.querySelector([
+      ".yotpo-reviews-pagination-container [aria-current='page']",
+      ".yotpo-reviews-pagination-container [aria-selected='true']",
+      ".yotpo-pager .active",
+      ".yotpo-pager .selected",
+      ".yotpo-reviews-pagination-container [aria-pressed='true']",
+      ".yotpo-reviews-pagination-container [data-active='true']",
+      "[class*='yotpo'][class*='pagination'] [aria-current='page']",
+      "[class*='yotpo'][class*='pagination'] [aria-selected='true']",
+      "[class*='yotpo'][class*='pagination'] [aria-pressed='true']",
+    ].join(","));
+    if (explicit) return explicit;
+
+    return getYotpoPaginationButtons().find((node) => {
+      const page = positiveInteger(clean(node.textContent));
+      return Boolean(page && /active|selected|current/i.test(String(node.className || "")));
+    }) || null;
+  }
+
+  function findYotpoPageButton(page) {
+    const candidates = getYotpoPaginationButtons();
+    return candidates.find((node) => clean(node.textContent) === String(page)) || null;
+  }
+
+  function findYotpoNextButton() {
+    const candidates = getYotpoPaginationButtons();
+    const labelled = candidates.find((node) => {
+      if (!isUsableAction(node)) return false;
+      const text = [
+        node.textContent,
+        node.getAttribute("aria-label"),
+        node.getAttribute("title"),
+        node.getAttribute("data-testid"),
+        node.className,
+      ].map(clean).join(" ");
+      if (/previous|prev|back|left/i.test(text)) return false;
+      if (/next|right|forward/i.test(text)) return true;
+      return Boolean(node.querySelector(
+        "[class*='right' i], [class*='next' i], [data-testid*='next' i], svg[aria-label*='next' i]"
+      ));
+    });
+    if (labelled) return labelled;
+
+    const currentPage = getYotpoCurrentPage();
+    const nextPageButton = currentPage
+      ? candidates.find((node) => positiveInteger(clean(node.textContent)) === currentPage + 1 && isUsableAction(node))
+      : null;
+    if (nextPageButton) return nextPageButton;
+
+    const numericIndexes = candidates
+      .map((node, index) => ({ index, page: positiveInteger(clean(node.textContent)) }))
+      .filter((item) => item.page);
+    if (numericIndexes.length === 0) return null;
+
+    const lastNumericIndex = numericIndexes[numericIndexes.length - 1].index;
+    return candidates.slice(lastNumericIndex + 1).find(isUsableAction) || null;
+  }
+
+  function getYotpoPaginationButtons() {
+    const selectors = [
+      ".yotpo-reviews-pagination-container button",
+      ".yotpo-reviews-pagination-container a",
+      ".yotpo-pager button",
+      ".yotpo-pager a",
+      "[class*='yotpo'][class*='pagination'] button",
+      "[class*='yotpo'][class*='pagination'] a",
+      "[data-testid*='pagination' i] button",
+      "[data-testid*='pagination' i] a",
+      "button[data-testid*='next' i]",
+      "a[data-testid*='next' i]",
+    ];
+    return Array.from(new Set(document.querySelectorAll(selectors.join(","))));
+  }
+
+  function isUsableAction(node) {
+    if (!node?.isConnected) return false;
+    if (node.matches("[disabled], [aria-disabled='true']")) return false;
+    const style = window.getComputedStyle(node);
+    return style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  async function waitForYotpoPageChange(beforeFingerprint, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await sleep(250);
+      const fingerprint = getYotpoPageFingerprint();
+      if (fingerprint && fingerprint !== beforeFingerprint) return true;
+    }
+    return false;
+  }
+
+  function extractYotpoExpectedCount() {
+    const attributes = [
+      "[data-total-reviews]",
+      "[data-reviews-count]",
+      "[data-review-count]",
+      "[data-total]",
+    ];
+    const counts = [];
+    const widget = findYotpoRoot();
+    const searchRoot = widget || document;
+    const countAttributeNames = ["data-total-reviews", "data-reviews-count", "data-review-count", "data-total"];
+
+    const attributeNodes = Array.from(searchRoot.querySelectorAll(attributes.join(",")));
+    if (widget?.matches(attributes.join(","))) attributeNodes.unshift(widget);
+    for (const node of attributeNodes) {
+      for (const name of countAttributeNames) {
+        const count = positiveInteger(node.getAttribute(name));
+        if (count) counts.push(count);
+      }
+    }
+
+    const countNodes = searchRoot.querySelectorAll([
+      ".yotpo-bottom-line-text",
+      ".yotpo-reviews-count",
+      "[data-testid*='reviews-count' i]",
+      "[class*='reviews-count' i]",
+    ].join(","));
+    for (const node of countNodes) {
+      const textMatch = clean(node.textContent).match(/([\d,]+)\s+(?:customer\s+)?reviews?/i);
+      const textCount = positiveInteger(textMatch?.[1]);
+      if (textCount) counts.push(textCount);
+    }
+
+    return counts.length > 0 ? Math.max(...counts) : null;
+  }
+
+  function findYotpoRoot() {
+    const review = document.querySelector(".yotpo-review");
+    return review?.closest(
+      ".yotpo-widget-instance, .yotpo-main-widget, [data-yotpo-instance-id], [class*='yotpo'][class*='widget']"
+    ) || document.querySelector(
+      ".yotpo-widget-instance, .yotpo-main-widget, [data-yotpo-instance-id]"
+    );
+  }
+
   async function expandGenericReviewWidgets() {
     let idleRounds = 0;
 
@@ -882,7 +1125,9 @@
         ? "okendo-dom"
         : isLooxReview
           ? "loox-dom"
-          : "visible-dom",
+          : container.matches(".yotpo-review")
+            ? "yotpo-dom"
+            : "visible-dom",
       title,
       body,
       author,
