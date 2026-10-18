@@ -7,6 +7,8 @@
   const JUDGE_ME_LOAD_TIMEOUT_MS = 60_000;
   const YOTPO_REVIEW_LIMIT = 100;
   const YOTPO_LOAD_TIMEOUT_MS = 60_000;
+  const STAMPED_REVIEW_LIMIT = 100;
+  const STAMPED_LOAD_TIMEOUT_MS = 60_000;
   const state = {
     networkPayloads: [],
     looxInlineSnapshots: [],
@@ -268,6 +270,8 @@
         ? await collectLooxReviews()
         : providerDetection.primary === "yotpo"
           ? await expandYotpoReviews()
+          : providerDetection.primary === "stamped"
+            ? await expandStampedReviews()
           : await expandGenericReviewWidgets();
     await waitForOkendoMetadata(5_000);
 
@@ -372,6 +376,8 @@
     addProviderCandidate(candidates, "yotpo", ".yotpo-reviews-pagination-container, .yotpo-pager, [class*='yotpo'][class*='pagination']", "Yotpo pagination");
     addProviderCandidate(candidates, "yotpo", "script[src*='yotpo.com'], script[src*='yotpoassets.com']", "Yotpo widget script");
     addProviderCandidate(candidates, "stamped", ".stamped-review, .stamped-product-reviews-badge", "Stamped review widget");
+    addProviderCandidate(candidates, "stamped", ".stamped-pagination, [class*='stamped'][class*='pagination']", "Stamped pagination");
+    addProviderCandidate(candidates, "stamped", "script[src*='stamped.io'], script[src*='stampedapp.io']", "Stamped widget script");
     addProviderCandidate(candidates, "okendo", ".okeReviews, .oke-w-reviews-list-item, .okeReviews-review", "Okendo review widget");
     addProviderCandidate(candidates, "junip", ".junip-review-list-item-container, .junip-review, .junip-product-review", "Junip review widget");
 
@@ -951,6 +957,239 @@
     );
   }
 
+  async function expandStampedReviews() {
+    const reviews = [];
+    const errors = [];
+    const startedAt = Date.now();
+    const expectedCount = extractStampedExpectedCount();
+    const initialCount = getStampedReviewCount();
+    let attempts = 0;
+    let pagesLoaded = 0;
+    let stoppedReason = "";
+
+    const firstPageButton = findStampedPageButton(1);
+    const currentPage = getStampedCurrentPage();
+    if (firstPageButton && currentPage && currentPage > 1) {
+      const beforeFingerprint = getStampedPageFingerprint();
+      firstPageButton.scrollIntoView({ block: "center" });
+      firstPageButton.click();
+      const reset = await waitForStampedPageChange(beforeFingerprint, 5_000);
+      if (!reset) errors.push("Unable to return Stamped pagination to page 1.");
+    }
+
+    while (reviews.length < STAMPED_REVIEW_LIMIT) {
+      reviews.push(...extractStampedReviews());
+      const uniqueReviews = dedupeReviews(reviews);
+      reviews.length = 0;
+      reviews.push(...uniqueReviews);
+
+      if (reviews.length >= STAMPED_REVIEW_LIMIT) {
+        stoppedReason = "configured_limit_reached";
+        break;
+      }
+      if (expectedCount && reviews.length >= expectedCount) {
+        stoppedReason = "expected_count_reached";
+        break;
+      }
+      if (Date.now() - startedAt >= STAMPED_LOAD_TIMEOUT_MS) {
+        stoppedReason = "timeout";
+        break;
+      }
+
+      const nextButton = findStampedNextButton();
+      if (!nextButton) {
+        stoppedReason = "next_button_missing";
+        break;
+      }
+
+      const beforeFingerprint = getStampedPageFingerprint();
+      attempts += 1;
+      nextButton.scrollIntoView({ block: "center" });
+      nextButton.click();
+
+      const progressed = await waitForStampedPageChange(beforeFingerprint, 5_000);
+      if (!progressed) {
+        errors.push(`Next page attempt ${attempts} did not change the Stamped reviews.`);
+        stoppedReason = "no_progress";
+        break;
+      }
+
+      pagesLoaded += 1;
+    }
+
+    if (!stoppedReason) stoppedReason = "completed";
+
+    return {
+      reviews: dedupeReviews(reviews).slice(0, STAMPED_REVIEW_LIMIT),
+      diagnostics: {
+        provider: "stamped",
+        method: "provider_pagination",
+        expectedCount,
+        configuredLimit: STAMPED_REVIEW_LIMIT,
+        initialCount,
+        finalDomCount: getStampedReviewCount(),
+        extractedCount: Math.min(reviews.length, STAMPED_REVIEW_LIMIT),
+        attempts,
+        pagesLoaded,
+        complete: Boolean(expectedCount && reviews.length >= expectedCount),
+        stoppedReason,
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  function extractStampedReviews() {
+    return Array.from(document.querySelectorAll(".stamped-review"))
+      .map((node) => extractReviewFromContainer(node))
+      .filter(Boolean);
+  }
+
+  function getStampedReviewCount() {
+    return document.querySelectorAll(".stamped-review").length;
+  }
+
+  function getStampedPageFingerprint() {
+    return extractStampedReviews()
+      .map((review) => reviewContentKey(review))
+      .join("##")
+      .slice(0, 20_000);
+  }
+
+  function getStampedCurrentPage() {
+    const currentNode = document.querySelector([
+      ".stamped-pagination .active",
+      ".stamped-pagination [aria-current='page']",
+      ".stamped-pagination [aria-selected='true']",
+      "[class*='stamped'][class*='pagination'] [aria-current='page']",
+      "[class*='stamped'][class*='pagination'] [aria-selected='true']",
+    ].join(","));
+    if (!currentNode) return null;
+
+    return positiveInteger(
+      currentNode.getAttribute("data-page")
+      || currentNode.querySelector("[data-page]")?.getAttribute("data-page")
+      || clean(currentNode.textContent)
+    );
+  }
+
+  function findStampedPageButton(page) {
+    return getStampedPaginationButtons().find((node) => {
+      const nodePage = positiveInteger(
+        node.getAttribute("data-page")
+        || node.closest("[data-page]")?.getAttribute("data-page")
+        || clean(node.textContent)
+      );
+      return nodePage === page && isUsableAction(node);
+    }) || null;
+  }
+
+  function findStampedNextButton() {
+    const candidates = getStampedPaginationButtons();
+    const labelled = candidates.find((node) => {
+      if (!isUsableAction(node)) return false;
+      const text = [
+        node.textContent,
+        node.getAttribute("aria-label"),
+        node.getAttribute("title"),
+        node.className,
+        node.parentElement?.className,
+      ].map(clean).join(" ");
+      if (/previous|prev|back|left/i.test(text)) return false;
+      return /next|right|forward/i.test(text);
+    });
+    if (labelled) return labelled;
+
+    const currentPage = getStampedCurrentPage();
+    if (currentPage) {
+      const nextPageButton = findStampedPageButton(currentPage + 1);
+      if (nextPageButton) return nextPageButton;
+    }
+
+    const numericIndexes = candidates
+      .map((node, index) => ({
+        index,
+        page: positiveInteger(
+          node.getAttribute("data-page")
+          || node.closest("[data-page]")?.getAttribute("data-page")
+          || clean(node.textContent)
+        ),
+      }))
+      .filter((item) => item.page);
+    if (numericIndexes.length === 0) return null;
+
+    const lastNumericIndex = numericIndexes[numericIndexes.length - 1].index;
+    return candidates.slice(lastNumericIndex + 1).find(isUsableAction) || null;
+  }
+
+  function getStampedPaginationButtons() {
+    const selectors = [
+      ".stamped-pagination button",
+      ".stamped-pagination a",
+      ".stamped-pagination [role='button']",
+      "[class*='stamped'][class*='pagination'] button",
+      "[class*='stamped'][class*='pagination'] a",
+      "[class*='stamped'][class*='pagination'] [role='button']",
+    ];
+    return Array.from(new Set(document.querySelectorAll(selectors.join(","))));
+  }
+
+  async function waitForStampedPageChange(beforeFingerprint, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await sleep(250);
+      const fingerprint = getStampedPageFingerprint();
+      if (fingerprint && fingerprint !== beforeFingerprint) return true;
+    }
+    return false;
+  }
+
+  function extractStampedExpectedCount() {
+    const counts = [];
+    const attributeNames = [
+      "data-count-reviews",
+      "data-review-count",
+      "data-reviews-count",
+      "data-total-reviews",
+      "data-total",
+    ];
+    const attributeSelector = attributeNames.map((name) => `[${name}]`).join(",");
+    const root = findStampedRoot();
+    const searchRoot = root || document;
+    const attributeNodes = Array.from(searchRoot.querySelectorAll(attributeSelector));
+    if (root?.matches(attributeSelector)) attributeNodes.unshift(root);
+
+    for (const node of attributeNodes) {
+      for (const name of attributeNames) {
+        const count = positiveInteger(node.getAttribute(name));
+        if (count) counts.push(count);
+      }
+    }
+
+    const countNodes = searchRoot.querySelectorAll([
+      ".stamped-summary-text",
+      ".stamped-summary-caption",
+      ".stamped-product-reviews-badge",
+      "[class*='stamped'][class*='count']",
+    ].join(","));
+    for (const node of countNodes) {
+      const match = clean(node.textContent).match(/(?:based\s+on\s+)?([\d,]+)\s+(?:customer\s+)?reviews?/i);
+      const count = positiveInteger(match?.[1]);
+      if (count) counts.push(count);
+    }
+
+    return counts.length > 0 ? Math.max(...counts) : null;
+  }
+
+  function findStampedRoot() {
+    const review = document.querySelector(".stamped-review");
+    return review?.closest(
+      "#stamped-main-widget, .stamped-main-widget, .stamped-container, [data-widget-type*='review' i]"
+    ) || document.querySelector(
+      "#stamped-main-widget, .stamped-main-widget, .stamped-container"
+    );
+  }
+
   async function expandGenericReviewWidgets() {
     let idleRounds = 0;
 
@@ -1127,6 +1366,8 @@
           ? "loox-dom"
           : container.matches(".yotpo-review")
             ? "yotpo-dom"
+            : container.matches(".stamped-review")
+              ? "stamped-dom"
             : "visible-dom",
       title,
       body,
