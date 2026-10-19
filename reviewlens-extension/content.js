@@ -16,6 +16,13 @@
     looxInlineSnapshots: [],
     looxExpectedCount: null,
     frameExpansions: [],
+    diagnostics: {
+      events: [],
+      okendoButtons: [],
+      okendoReviews: 0,
+      shadowRoots: 0,
+      frames: [],
+    },
     hooksInstalled: false,
   };
 
@@ -56,6 +63,10 @@
     if (!event.data || event.data.source !== "reviewlens" || event.data.type !== "expand-frame") return;
 
     const providerDetection = detectReviewProvider();
+    recordDiagnostic("frame_received_expand_request", {
+      provider: providerDetection.primary,
+      url: location.href,
+    });
     if (providerDetection.primary !== "okendo" && !findOkendoShowMoreButton()) return;
 
     const expansion = await expandOkendoReviews();
@@ -67,6 +78,11 @@
         ...expansion,
       },
     }, "*");
+    recordDiagnostic("frame_sent_expansion_result", {
+      provider: providerDetection.primary,
+      reviews: expansion.reviews?.length || 0,
+      diagnostics: expansion.diagnostics || null,
+    });
   }
 
   function installPageHooks() {
@@ -288,6 +304,13 @@
   }
 
   async function runScrape() {
+    state.diagnostics = {
+      events: [],
+      okendoButtons: [],
+      okendoReviews: 0,
+      shadowRoots: 0,
+      frames: [],
+    };
     await settlePage();
 
     const debug = {
@@ -299,6 +322,7 @@
       providerDetection: null,
       loadMore: null,
       diagnosis: "",
+      trace: null,
     };
 
     if (!isLikelyShopifyProductPage()) {
@@ -310,6 +334,10 @@
     }
 
     const providerDetection = detectReviewProvider();
+    recordDiagnostic("scrape_started", {
+      provider: providerDetection.primary,
+      url: location.href,
+    });
     const expansion = providerDetection.primary === "judge.me"
       ? await expandJudgeMeReviews()
       : providerDetection.primary === "loox"
@@ -357,6 +385,12 @@
       diagnostics: item.diagnostics || null,
       reviewCount: item.reviews?.length || 0,
     }));
+    debug.trace = {
+      ...state.diagnostics,
+      events: state.diagnostics.events.slice(-100),
+      okendoButtons: state.diagnostics.okendoButtons.slice(-30),
+      frames: state.diagnostics.frames.slice(-30),
+    };
     debug.diagnosis = diagnoseScrape(debug.iframeCount, debug.visibleReviewCounts, state.networkPayloads, reviews.length);
 
     return {
@@ -1254,6 +1288,17 @@
     const startedAt = Date.now();
     const expectedCount = extractOkendoExpectedCount();
     const initialCount = getOkendoReviewCount();
+    state.diagnostics.okendoReviews = initialCount;
+    state.diagnostics.frames = Array.from(document.querySelectorAll("iframe")).map((frame, index) => ({
+      index,
+      src: frame.getAttribute("src") || "",
+      loaded: Boolean(frame.contentWindow),
+    }));
+    recordDiagnostic("okendo_expansion_started", {
+      initialCount,
+      expectedCount,
+      provider: detectReviewProvider().primary,
+    });
     let attempts = 0;
     let pagesLoaded = 0;
     let stoppedReason = "";
@@ -1275,6 +1320,11 @@
 
       const button = findOkendoShowMoreButton();
       if (!button) {
+        recordDiagnostic("okendo_button_not_found", {
+          reviewCount: reviews.length,
+          expectedCount,
+          candidateCount: state.diagnostics.okendoButtons.length,
+        });
         stoppedReason = expectedCount && reviews.length >= expectedCount
           ? "expected_count_reached"
           : "button_missing";
@@ -1283,9 +1333,17 @@
 
       const beforeFingerprint = getOkendoPageFingerprint();
       const beforePayloadKey = getOkendoPayloadKey();
+      const beforeUrl = location.href;
+      const buttonInfo = describeElement(button);
+      recordDiagnostic("okendo_button_found", buttonInfo);
       attempts += 1;
       button.scrollIntoView({ block: "center" });
       clickOkendoAction(button);
+      recordDiagnostic("okendo_button_clicked", {
+        ...buttonInfo,
+        beforeUrl,
+        reviewCountBefore: reviews.length,
+      });
 
       const progressed = await waitForOkendoProgress(
         beforeFingerprint,
@@ -1293,12 +1351,23 @@
         5_000
       );
       if (!progressed) {
+        recordDiagnostic("okendo_no_progress", {
+          reviewCountAfter: getOkendoReviewCount(),
+          urlAfter: location.href,
+          payloadChanged: getOkendoPayloadKey() !== beforePayloadKey,
+          fingerprintChanged: getOkendoPageFingerprint() !== beforeFingerprint,
+        });
         errors.push(`Show More attempt ${attempts} did not add or replace Okendo reviews.`);
         stoppedReason = "no_progress";
         break;
       }
 
       pagesLoaded += 1;
+      recordDiagnostic("okendo_progress", {
+        pagesLoaded,
+        reviewCount: getOkendoReviewCount(),
+        urlAfter: location.href,
+      });
     }
 
     if (!stoppedReason) stoppedReason = "completed";
@@ -1353,7 +1422,8 @@
       "[role='button']",
     ].join(","));
 
-    return candidates.find((node) => {
+    state.diagnostics.okendoButtons = candidates.map(describeElement);
+    const button = candidates.find((node) => {
       if (!isUsableAction(node)) return false;
       if (node.hidden) return false;
       const text = [
@@ -1367,6 +1437,12 @@
       return /show\s*more|load\s*more|more\s*reviews|view\s*more/i.test(text)
         || node.matches(".oke-showMore-button, .oke-show-more, .okeReviews-showMore, .oke-w-reviews-show-more, [data-oke-button='show-more']");
     }) || null;
+    recordDiagnostic("okendo_button_scan", {
+      candidates: candidates.length,
+      visibleCandidates: candidates.filter(isUsableAction).length,
+      selected: button ? describeElement(button) : null,
+    });
+    return button;
   }
 
   function clickOkendoAction(node) {
@@ -1456,7 +1532,10 @@
       if (node.querySelectorAll) {
         results.push(...node.querySelectorAll(selector));
       }
-      if (node.shadowRoot) visit(node.shadowRoot);
+      if (node.shadowRoot) {
+        state.diagnostics.shadowRoots += 1;
+        visit(node.shadowRoot);
+      }
       if (node.querySelectorAll) {
         for (const element of node.querySelectorAll("*")) {
           if (element.shadowRoot) visit(element.shadowRoot);
@@ -1466,6 +1545,39 @@
 
     visit(root);
     return Array.from(new Set(results));
+  }
+
+  function describeElement(node) {
+    if (!node) return null;
+    const rect = node.getBoundingClientRect?.();
+    return {
+      tag: node.tagName || "",
+      text: clean(node.textContent).slice(0, 200),
+      className: String(node.className || ""),
+      id: node.id || "",
+      hidden: Boolean(node.hidden),
+      disabled: Boolean(node.disabled || node.getAttribute("aria-disabled") === "true"),
+      display: getComputedStyle(node).display,
+      visibility: getComputedStyle(node).visibility,
+      connected: Boolean(node.isConnected),
+      href: node.getAttribute?.("href") || "",
+      rect: rect ? {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      } : null,
+    };
+  }
+
+  function recordDiagnostic(type, details = {}) {
+    state.diagnostics.events.push({
+      at: new Date().toISOString(),
+      frame: isTopFrame ? "top" : "iframe",
+      type,
+      details,
+    });
+    if (state.diagnostics.events.length > 150) state.diagnostics.events.shift();
   }
 
   async function expandGenericReviewWidgets() {

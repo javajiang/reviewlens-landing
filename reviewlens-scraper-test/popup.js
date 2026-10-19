@@ -25,6 +25,7 @@ const framesEl = document.getElementById("frames");
 const frameExpansionsEl = document.getElementById("frame-expansions");
 const diagnosisEl = document.getElementById("diagnosis");
 const signalsEl = document.getElementById("signals");
+const diagnosticTraceEl = document.getElementById("diagnostic-trace");
 const reviewListEl = document.getElementById("review-list");
 const exportButton = document.getElementById("export");
 const clearButton = document.getElementById("clear");
@@ -104,6 +105,7 @@ function renderResult() {
     : "None";
   diagnosisEl.textContent = debug.diagnosis || "No diagnosis returned";
   signalsEl.textContent = JSON.stringify(debug.visibleReviewCounts || {}, null, 2);
+  diagnosticTraceEl.textContent = JSON.stringify(debug.trace || {}, null, 2);
   renderReviews();
 }
 
