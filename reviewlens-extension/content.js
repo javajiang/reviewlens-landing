@@ -1214,10 +1214,6 @@
         stoppedReason = "configured_limit_reached";
         break;
       }
-      if (expectedCount && reviews.length >= expectedCount) {
-        stoppedReason = "expected_count_reached";
-        break;
-      }
       if (Date.now() - startedAt >= OKENDO_LOAD_TIMEOUT_MS) {
         stoppedReason = "timeout";
         break;
@@ -1225,7 +1221,9 @@
 
       const button = findOkendoShowMoreButton();
       if (!button) {
-        stoppedReason = "button_missing";
+        stoppedReason = expectedCount && reviews.length >= expectedCount
+          ? "expected_count_reached"
+          : "button_missing";
         break;
       }
 
@@ -1307,6 +1305,7 @@
 
     return candidates.find((node) => {
       if (!isUsableAction(node)) return false;
+      if (node.hidden) return false;
       const text = [
         node.textContent,
         node.getAttribute("aria-label"),
