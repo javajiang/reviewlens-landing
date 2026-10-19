@@ -972,7 +972,7 @@
     if (firstPageButton && currentPage && currentPage > 1) {
       const beforeFingerprint = getStampedPageFingerprint();
       firstPageButton.scrollIntoView({ block: "center" });
-      clickStampedAction(firstPageButton);
+      firstPageButton.click();
       const reset = await waitForStampedPageChange(beforeFingerprint, 5_000);
       if (!reset) errors.push("Unable to return Stamped pagination to page 1.");
     }
@@ -1005,7 +1005,7 @@
       const beforeFingerprint = getStampedPageFingerprint();
       attempts += 1;
       nextButton.scrollIntoView({ block: "center" });
-      clickStampedAction(nextButton);
+      nextButton.click();
 
       const progressed = await waitForStampedPageChange(beforeFingerprint, 5_000);
       if (!progressed) {
@@ -1132,18 +1132,6 @@
       "[class*='stamped'][class*='pagination'] [role='button']",
     ];
     return Array.from(new Set(document.querySelectorAll(selectors.join(","))));
-  }
-
-  function clickStampedAction(node) {
-    // Stamped sometimes renders pagination as links with a fallback href.
-    // Keep the widget's handler, but prevent the fallback page navigation.
-    if (node.matches("a")) {
-      node.addEventListener("click", (event) => event.preventDefault(), {
-        capture: true,
-        once: true,
-      });
-    }
-    node.click();
   }
 
   async function waitForStampedPageChange(beforeFingerprint, timeoutMs) {
