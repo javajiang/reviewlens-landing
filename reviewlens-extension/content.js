@@ -9,6 +9,8 @@
   const YOTPO_LOAD_TIMEOUT_MS = 60_000;
   const STAMPED_REVIEW_LIMIT = 100;
   const STAMPED_LOAD_TIMEOUT_MS = 60_000;
+  const OKENDO_REVIEW_LIMIT = 100;
+  const OKENDO_LOAD_TIMEOUT_MS = 60_000;
   const state = {
     networkPayloads: [],
     looxInlineSnapshots: [],
@@ -272,6 +274,8 @@
           ? await expandYotpoReviews()
           : providerDetection.primary === "stamped"
             ? await expandStampedReviews()
+          : providerDetection.primary === "okendo"
+            ? await expandOkendoReviews()
           : await expandGenericReviewWidgets();
     await waitForOkendoMetadata(5_000);
 
@@ -1188,6 +1192,202 @@
     ) || document.querySelector(
       "#stamped-main-widget, .stamped-main-widget, .stamped-container"
     );
+  }
+
+  async function expandOkendoReviews() {
+    const reviews = [];
+    const errors = [];
+    const startedAt = Date.now();
+    const expectedCount = extractOkendoExpectedCount();
+    const initialCount = getOkendoReviewCount();
+    let attempts = 0;
+    let pagesLoaded = 0;
+    let stoppedReason = "";
+
+    while (reviews.length < OKENDO_REVIEW_LIMIT) {
+      reviews.push(...extractOkendoReviews());
+      const uniqueReviews = dedupeReviews(reviews);
+      reviews.length = 0;
+      reviews.push(...uniqueReviews);
+
+      if (reviews.length >= OKENDO_REVIEW_LIMIT) {
+        stoppedReason = "configured_limit_reached";
+        break;
+      }
+      if (expectedCount && reviews.length >= expectedCount) {
+        stoppedReason = "expected_count_reached";
+        break;
+      }
+      if (Date.now() - startedAt >= OKENDO_LOAD_TIMEOUT_MS) {
+        stoppedReason = "timeout";
+        break;
+      }
+
+      const button = findOkendoShowMoreButton();
+      if (!button) {
+        stoppedReason = "button_missing";
+        break;
+      }
+
+      const beforeFingerprint = getOkendoPageFingerprint();
+      const beforePayloadKey = getOkendoPayloadKey();
+      attempts += 1;
+      button.scrollIntoView({ block: "center" });
+      clickOkendoAction(button);
+
+      const progressed = await waitForOkendoProgress(
+        beforeFingerprint,
+        beforePayloadKey,
+        5_000
+      );
+      if (!progressed) {
+        errors.push(`Show More attempt ${attempts} did not add or replace Okendo reviews.`);
+        stoppedReason = "no_progress";
+        break;
+      }
+
+      pagesLoaded += 1;
+    }
+
+    if (!stoppedReason) stoppedReason = "completed";
+
+    return {
+      reviews: dedupeReviews(reviews).slice(0, OKENDO_REVIEW_LIMIT),
+      diagnostics: {
+        provider: "okendo",
+        method: "provider_load_more",
+        expectedCount,
+        configuredLimit: OKENDO_REVIEW_LIMIT,
+        initialCount,
+        finalDomCount: getOkendoReviewCount(),
+        extractedCount: Math.min(reviews.length, OKENDO_REVIEW_LIMIT),
+        attempts,
+        pagesLoaded,
+        complete: Boolean(expectedCount && reviews.length >= expectedCount),
+        stoppedReason,
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  function extractOkendoReviews() {
+    return Array.from(document.querySelectorAll(
+      ".oke-w-reviews-list-item, .okeReviews-review"
+    ))
+      .map((node) => extractReviewFromContainer(node))
+      .filter(Boolean);
+  }
+
+  function getOkendoReviewCount() {
+    return document.querySelectorAll(
+      ".oke-w-reviews-list-item, .okeReviews-review"
+    ).length;
+  }
+
+  function getOkendoPageFingerprint() {
+    return extractOkendoReviews()
+      .map((review) => reviewContentKey(review))
+      .join("##")
+      .slice(0, 20_000);
+  }
+
+  function findOkendoShowMoreButton() {
+    const candidates = Array.from(document.querySelectorAll([
+      ".oke-showMore-button",
+      ".oke-show-more",
+      ".okeReviews-showMore",
+      ".oke-w-reviews-show-more",
+      "[class*='oke'][class*='show'][class*='more' i]",
+      "[data-oke-button='show-more']",
+      "button",
+      "a",
+      "[role='button']",
+    ].join(",")));
+
+    return candidates.find((node) => {
+      if (!isUsableAction(node)) return false;
+      const text = [
+        node.textContent,
+        node.getAttribute("aria-label"),
+        node.getAttribute("title"),
+        node.dataset?.okeButton,
+        node.className,
+      ].map(clean).join(" ");
+      if (/read more|write a review|sort|filter/i.test(text)) return false;
+      return /show\s*more|load\s*more|more\s*reviews|view\s*more/i.test(text)
+        || node.matches(".oke-showMore-button, .oke-show-more, .okeReviews-showMore, .oke-w-reviews-show-more, [data-oke-button='show-more']");
+    }) || null;
+  }
+
+  function clickOkendoAction(node) {
+    if (node.matches("a")) {
+      node.addEventListener("click", (event) => event.preventDefault(), {
+        capture: true,
+        once: true,
+      });
+    }
+    node.click();
+  }
+
+  function getOkendoPayloadKey() {
+    return state.networkPayloads
+      .filter((item) => /okendo/i.test(item.url))
+      .map((item) => `${item.url}|${stableBodyKey(item.body)}`)
+      .join("##")
+      .slice(-20_000);
+  }
+
+  async function waitForOkendoProgress(beforeFingerprint, beforePayloadKey, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await sleep(250);
+      const fingerprint = getOkendoPageFingerprint();
+      const payloadKey = getOkendoPayloadKey();
+      if (
+        (fingerprint && fingerprint !== beforeFingerprint)
+        || (payloadKey && payloadKey !== beforePayloadKey)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function extractOkendoExpectedCount() {
+    const counts = [];
+    const root = document.querySelector(
+      ".okeReviews, .oke-w-reviews, [data-oke-container], [data-oke-widget]"
+    ) || document;
+    const attributes = [
+      "data-review-count",
+      "data-reviews-count",
+      "data-total-reviews",
+      "data-total",
+    ];
+    const selector = attributes.map((name) => `[${name}]`).join(",");
+    const nodes = Array.from(root.querySelectorAll(selector));
+    if (root.matches(selector)) nodes.unshift(root);
+
+    for (const node of nodes) {
+      for (const name of attributes) {
+        const count = positiveInteger(node.getAttribute(name));
+        if (count) counts.push(count);
+      }
+    }
+
+    const textNodes = root.querySelectorAll([
+      ".okeReviews-reviewsAggregate",
+      ".oke-w-reviews-count",
+      "[class*='oke'][class*='review'][class*='count' i]",
+    ].join(","));
+    for (const node of textNodes) {
+      const match = clean(node.textContent).match(/([\d,]+)\s+(?:customer\s+)?reviews?/i);
+      const count = positiveInteger(match?.[1]);
+      if (count) counts.push(count);
+    }
+
+    return counts.length > 0 ? Math.max(...counts) : null;
   }
 
   async function expandGenericReviewWidgets() {
