@@ -19,6 +19,9 @@ async function scrapeActiveTab() {
   if (!/^https?:\/\//i.test(tab.url || "")) {
     throw new Error("Open a public Shopify product page before testing.");
   }
+  if (!/\/products\//i.test(tab.url || "")) {
+    throw new Error("Open a Shopify product page URL containing /products/ before testing.");
+  }
 
   return sendMessageWithRetry(tab.id, { type: "REVIEWLENS_SCRAPE_PAGE" }, 8, 400);
 }
