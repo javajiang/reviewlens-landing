@@ -56,7 +56,7 @@
     if (!event.data || event.data.source !== "reviewlens" || event.data.type !== "expand-frame") return;
 
     const providerDetection = detectReviewProvider();
-    if (providerDetection.primary !== "okendo") return;
+    if (providerDetection.primary !== "okendo" && !findOkendoShowMoreButton()) return;
 
     const expansion = await expandOkendoReviews();
     window.parent.postMessage({
@@ -436,6 +436,7 @@
     addProviderCandidate(candidates, "stamped", ".stamped-pagination, [class*='stamped'][class*='pagination']", "Stamped pagination");
     addProviderCandidate(candidates, "stamped", "script[src*='stamped.io'], script[src*='stampedapp.io']", "Stamped widget script");
     addProviderCandidate(candidates, "okendo", ".okeReviews, .oke-w-reviews-list-item, .okeReviews-review", "Okendo review widget");
+    addProviderCandidate(candidates, "okendo", ".oke-showMore-button, .oke-show-more, .okeReviews-showMore, .oke-w-reviews-show-more", "Okendo Show More control");
     addProviderCandidate(candidates, "junip", ".junip-review-list-item-container, .junip-review, .junip-product-review", "Junip review widget");
 
     const grouped = new Map();
@@ -459,7 +460,7 @@
   }
 
   function addProviderCandidate(candidates, provider, selector, signal) {
-    if (document.querySelector(selector)) candidates.push({ provider, signal });
+    if (deepQueryOne(selector)) candidates.push({ provider, signal });
   }
 
   function addProviderHtmlCandidate(candidates, provider, pattern, signal) {
@@ -1323,17 +1324,13 @@
   }
 
   function extractOkendoReviews() {
-    return Array.from(document.querySelectorAll(
-      ".oke-w-reviews-list-item, .okeReviews-review"
-    ))
+    return deepQueryAll(".oke-w-reviews-list-item, .okeReviews-review")
       .map((node) => extractReviewFromContainer(node))
       .filter(Boolean);
   }
 
   function getOkendoReviewCount() {
-    return document.querySelectorAll(
-      ".oke-w-reviews-list-item, .okeReviews-review"
-    ).length;
+    return deepQueryAll(".oke-w-reviews-list-item, .okeReviews-review").length;
   }
 
   function getOkendoPageFingerprint() {
@@ -1344,7 +1341,7 @@
   }
 
   function findOkendoShowMoreButton() {
-    const candidates = Array.from(document.querySelectorAll([
+    const candidates = deepQueryAll([
       ".oke-showMore-button",
       ".oke-show-more",
       ".okeReviews-showMore",
@@ -1354,7 +1351,7 @@
       "button",
       "a",
       "[role='button']",
-    ].join(",")));
+    ].join(","));
 
     return candidates.find((node) => {
       if (!isUsableAction(node)) return false;
@@ -1408,7 +1405,7 @@
 
   function extractOkendoExpectedCount() {
     const counts = [];
-    const root = document.querySelector(
+    const root = deepQueryOne(
       ".okeReviews, .oke-w-reviews, [data-oke-container], [data-oke-widget]"
     ) || document;
     const attributes = [
@@ -1418,7 +1415,7 @@
       "data-total",
     ];
     const selector = attributes.map((name) => `[${name}]`).join(",");
-    const nodes = Array.from(root.querySelectorAll(selector));
+    const nodes = deepQueryAll(selector, root);
     if (root.matches(selector)) nodes.unshift(root);
 
     for (const node of nodes) {
@@ -1428,7 +1425,7 @@
       }
     }
 
-    const textNodes = root.querySelectorAll([
+    const textNodes = deepQueryAll([
       ".okeReviews-reviewsAggregate",
       ".oke-w-reviews-count",
       "[class*='oke'][class*='review'][class*='count' i]",
@@ -1440,6 +1437,35 @@
     }
 
     return counts.length > 0 ? Math.max(...counts) : null;
+  }
+
+  function deepQueryOne(selector, root = document) {
+    return deepQueryAll(selector, root)[0] || null;
+  }
+
+  function deepQueryAll(selector, root = document) {
+    const results = [];
+    const visited = new Set();
+    const visit = (node) => {
+      if (!node || visited.has(node)) return;
+      visited.add(node);
+
+      if (node.nodeType === Node.ELEMENT_NODE && node.matches(selector)) {
+        results.push(node);
+      }
+      if (node.querySelectorAll) {
+        results.push(...node.querySelectorAll(selector));
+      }
+      if (node.shadowRoot) visit(node.shadowRoot);
+      if (node.querySelectorAll) {
+        for (const element of node.querySelectorAll("*")) {
+          if (element.shadowRoot) visit(element.shadowRoot);
+        }
+      }
+    };
+
+    visit(root);
+    return Array.from(new Set(results));
   }
 
   async function expandGenericReviewWidgets() {

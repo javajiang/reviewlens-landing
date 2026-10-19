@@ -22,6 +22,7 @@ const expectedReviewsEl = document.getElementById("expected-reviews");
 const loadedReviewsEl = document.getElementById("loaded-reviews");
 const stoppedReasonEl = document.getElementById("stopped-reason");
 const framesEl = document.getElementById("frames");
+const frameExpansionsEl = document.getElementById("frame-expansions");
 const diagnosisEl = document.getElementById("diagnosis");
 const signalsEl = document.getElementById("signals");
 const reviewListEl = document.getElementById("review-list");
@@ -98,6 +99,9 @@ function renderResult() {
   );
   stoppedReasonEl.textContent = debug.loadMore?.stoppedReason || "Not reported";
   framesEl.textContent = String(debug.iframeCount || 0);
+  frameExpansionsEl.textContent = Array.isArray(debug.frameExpansions)
+    ? debug.frameExpansions.map((item) => `${item.provider}: ${item.reviewCount}`).join(", ") || "None"
+    : "None";
   diagnosisEl.textContent = debug.diagnosis || "No diagnosis returned";
   signalsEl.textContent = JSON.stringify(debug.visibleReviewCounts || {}, null, 2);
   renderReviews();
