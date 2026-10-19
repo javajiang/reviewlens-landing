@@ -15,6 +15,7 @@
     networkPayloads: [],
     looxInlineSnapshots: [],
     looxExpectedCount: null,
+    frameExpansions: [],
     hooksInstalled: false,
   };
 
@@ -47,6 +48,26 @@
 
     return true;
   });
+
+  window.addEventListener("message", onFrameExpansionRequest);
+
+  async function onFrameExpansionRequest(event) {
+    if (isTopFrame || event.source !== window.parent) return;
+    if (!event.data || event.data.source !== "reviewlens" || event.data.type !== "expand-frame") return;
+
+    const providerDetection = detectReviewProvider();
+    if (providerDetection.primary !== "okendo") return;
+
+    const expansion = await expandOkendoReviews();
+    window.parent.postMessage({
+      source: "reviewlens",
+      type: "frame-expansion-result",
+      result: {
+        providerDetection,
+        ...expansion,
+      },
+    }, "*");
+  }
 
   function installPageHooks() {
     if (state.hooksInstalled) return;
@@ -216,7 +237,13 @@
 
   function onWindowMessage(event) {
     const data = event.data;
-    if (!data || data.source !== "reviewlens" || data.type !== "network") return;
+    if (!data || data.source !== "reviewlens") return;
+
+    if (isTopFrame && data.type === "frame-expansion-result" && data.result) {
+      state.frameExpansions.push(data.result);
+      return;
+    }
+    if (data.type !== "network") return;
 
     const payload = data.payload;
     if (!payload || !payload.url) return;
@@ -241,6 +268,23 @@
     if (state.networkPayloads.length > CAPTURE_LIMIT) {
       state.networkPayloads.shift();
     }
+  }
+
+  async function requestFrameExpansions() {
+    if (!isTopFrame || document.querySelectorAll("iframe").length === 0) return [];
+
+    state.frameExpansions = [];
+    for (const iframe of document.querySelectorAll("iframe")) {
+      try {
+        iframe.contentWindow?.postMessage({
+          source: "reviewlens",
+          type: "expand-frame",
+        }, "*");
+      } catch (_) {}
+    }
+
+    await sleep(7_000);
+    return state.frameExpansions.slice();
   }
 
   async function runScrape() {
@@ -277,18 +321,21 @@
           : providerDetection.primary === "okendo"
             ? await expandOkendoReviews()
           : await expandGenericReviewWidgets();
+    const frameExpansions = await requestFrameExpansions();
     await waitForOkendoMetadata(5_000);
 
     const html = document.documentElement.outerHTML;
     const jsonLdReviews = extractJsonLdReviews(html);
     const visibleReviews = extractVisibleReviews(document);
-    const frameReviews = extractFrameReviews();
+    const embeddedFrameReviews = extractFrameReviews();
     const providerReviews = extractProviderReviews(state.networkPayloads);
+    const expandedFrameReviews = frameExpansions.flatMap((item) => item.reviews || []);
     const allReviews = dedupeReviews([
       ...(expansion.reviews || []),
       ...jsonLdReviews,
       ...visibleReviews,
-      ...frameReviews,
+      ...embeddedFrameReviews,
+      ...expandedFrameReviews,
       ...providerReviews,
     ]);
     const reviews = allReviews.sort((a, b) => reviewRank(a) - reviewRank(b) || (ratingValue(a) - ratingValue(b)));
@@ -303,7 +350,13 @@
       ...(providerDetection.primary !== "unknown" ? [providerDetection.primary] : []),
     ])).sort();
     debug.providerDetection = providerDetection;
-    debug.loadMore = expansion.diagnostics;
+    debug.loadMore = frameExpansions.find((item) => item.diagnostics)?.diagnostics
+      || expansion.diagnostics;
+    debug.frameExpansions = frameExpansions.map((item) => ({
+      provider: item.providerDetection?.primary || item.diagnostics?.provider || "unknown",
+      diagnostics: item.diagnostics || null,
+      reviewCount: item.reviews?.length || 0,
+    }));
     debug.diagnosis = diagnoseScrape(debug.iframeCount, debug.visibleReviewCounts, state.networkPayloads, reviews.length);
 
     return {
