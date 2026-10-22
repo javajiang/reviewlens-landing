@@ -1,7 +1,7 @@
 (() => {
   const isTopFrame = window.top === window;
 
-  const REVIEW_URL_PATTERN = /review|reviews|judgeme|judge\.me|loox|yotpo|stamped|okendo|bazaarvoice|powerreviews/i;
+  const REVIEW_URL_PATTERN = /review|reviews|judgeme|judge\.me|loox|yotpo|stamped|reviews\.io|reviews\.co\.uk|fera|okendo|junip|bazaarvoice|powerreviews/i;
   const CAPTURE_LIMIT = 100;
   const JUDGE_ME_REVIEW_LIMIT = 100;
   const JUDGE_ME_LOAD_TIMEOUT_MS = 60_000;
@@ -9,6 +9,12 @@
   const YOTPO_LOAD_TIMEOUT_MS = 60_000;
   const STAMPED_REVIEW_LIMIT = 100;
   const STAMPED_LOAD_TIMEOUT_MS = 60_000;
+  const REVIEWS_IO_REVIEW_LIMIT = 100;
+  const REVIEWS_IO_LOAD_TIMEOUT_MS = 60_000;
+  const FERA_REVIEW_LIMIT = 100;
+  const FERA_LOAD_TIMEOUT_MS = 60_000;
+  const SHOPIFY_PRODUCT_REVIEWS_LIMIT = 100;
+  const SHOPIFY_PRODUCT_REVIEWS_LOAD_TIMEOUT_MS = 60_000;
   const OKENDO_REVIEW_LIMIT = 100;
   const OKENDO_LOAD_TIMEOUT_MS = 60_000;
   const state = {
@@ -312,6 +318,7 @@
       frames: [],
     };
     await settlePage();
+    await waitForOkendoMetadata(10_000);
 
     const debug = {
       url: location.href,
@@ -344,10 +351,18 @@
         ? await collectLooxReviews()
         : providerDetection.primary === "yotpo"
           ? await expandYotpoReviews()
-          : providerDetection.primary === "stamped"
-            ? await expandStampedReviews()
+        : providerDetection.primary === "stamped"
+          ? await expandStampedReviews()
+        : providerDetection.primary === "reviews.io"
+          ? await expandReviewsIoReviews()
+        : providerDetection.primary === "fera"
+          ? await expandFeraReviews()
+        : providerDetection.primary === "shopify-product-reviews"
+          ? await expandShopifyProductReviews()
           : providerDetection.primary === "okendo"
             ? await expandOkendoReviews()
+          : providerDetection.primary === "junip"
+            ? await collectJunipApiReviews()
           : await expandGenericReviewWidgets();
     const frameExpansions = await requestFrameExpansions();
     await waitForOkendoMetadata(5_000);
@@ -366,7 +381,8 @@
       ...expandedFrameReviews,
       ...providerReviews,
     ]);
-    const reviews = allReviews.sort((a, b) => reviewRank(a) - reviewRank(b) || (ratingValue(a) - ratingValue(b)));
+    // Keep the provider/API order so the popup can be matched to the page.
+    const reviews = allReviews.slice(0, CAPTURE_LIMIT);
 
     const negative = reviews.filter((review) => Number.isFinite(review?.rating) && review.rating <= 3);
     const positive = reviews.filter((review) => Number.isFinite(review?.rating) && review.rating >= 4);
@@ -431,7 +447,7 @@
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const okendoPayload = state.networkPayloads.find((item) => /okendo/i.test(item.url));
-      if (okendoPayload) return true;
+      if (okendoPayload || document.querySelector("script[data-oke-metafield-data]")) return true;
       await sleep(250);
     }
     return false;
@@ -469,8 +485,17 @@
     addProviderCandidate(candidates, "stamped", ".stamped-review, .stamped-product-reviews-badge", "Stamped review widget");
     addProviderCandidate(candidates, "stamped", ".stamped-pagination, [class*='stamped'][class*='pagination']", "Stamped pagination");
     addProviderCandidate(candidates, "stamped", "script[src*='stamped.io'], script[src*='stampedapp.io']", "Stamped widget script");
+    addProviderCandidate(candidates, "reviews.io", "#ReviewsWidget, .ElementsWidget", "REVIEWS.io widget");
+    addProviderCandidate(candidates, "reviews.io", ".R-ContentList__item, [class$='Reviews-carousel__review-item']", "REVIEWS.io review items");
+    addProviderCandidate(candidates, "reviews.io", "script[src*='widget.reviews.io'], script[src*='widget.reviews.co.uk']", "REVIEWS.io widget script");
+    addProviderCandidate(candidates, "fera", "[data-fera-widget], [data-fera-container], .fera-widget, .fera-product-reviews, [class*='fera-review']", "Fera review widget");
+    addProviderCandidate(candidates, "fera", "script[src*='fera.ai'], script[src*='app.fera.ai']", "Fera widget script");
+    addProviderCandidate(candidates, "shopify-product-reviews", "#shopify-product-reviews, .spr-container", "Shopify Product Reviews widget");
+    addProviderCandidate(candidates, "shopify-product-reviews", ".spr-review", "Shopify Product Reviews items");
+    addProviderCandidate(candidates, "shopify-product-reviews", ".spr-pagination", "Shopify Product Reviews pagination");
     addProviderCandidate(candidates, "okendo", ".okeReviews, .oke-w-reviews-list-item, .okeReviews-review", "Okendo review widget");
     addProviderCandidate(candidates, "okendo", ".oke-showMore-button, .oke-show-more, .okeReviews-showMore, .oke-w-reviews-show-more", "Okendo Show More control");
+    addProviderCandidate(candidates, "okendo", "script[data-oke-metafield-data]", "Okendo embedded review metadata");
     addProviderCandidate(candidates, "junip", ".junip-review-list-item-container, .junip-review, .junip-product-review", "Junip review widget");
 
     const grouped = new Map();
@@ -990,8 +1015,20 @@
   function isUsableAction(node) {
     if (!node?.isConnected) return false;
     if (node.matches("[disabled], [aria-disabled='true']")) return false;
-    const style = window.getComputedStyle(node);
-    return style.display !== "none" && style.visibility !== "hidden";
+
+    let current = node;
+    while (current) {
+      if (current.nodeType === Node.ELEMENT_NODE) {
+        if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+        const style = window.getComputedStyle(current);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+      }
+
+      const parent = current.parentNode;
+      current = parent instanceof ShadowRoot ? parent.host : parent;
+    }
+
+    return true;
   }
 
   async function waitForYotpoPageChange(beforeFingerprint, timeoutMs) {
@@ -1282,7 +1319,384 @@
     );
   }
 
+  async function expandFeraReviews() {
+    const reviews = [];
+    const errors = [];
+    const startedAt = Date.now();
+    let attempts = 0;
+    let pagesLoaded = 0;
+    let stoppedReason = "";
+
+    while (reviews.length < FERA_REVIEW_LIMIT) {
+      reviews.push(...extractFeraReviews());
+      const uniqueReviews = dedupeReviews(reviews);
+      reviews.length = 0;
+      reviews.push(...uniqueReviews);
+
+      if (reviews.length >= FERA_REVIEW_LIMIT) {
+        stoppedReason = "configured_limit_reached";
+        break;
+      }
+      if (Date.now() - startedAt >= FERA_LOAD_TIMEOUT_MS) {
+        stoppedReason = "timeout";
+        break;
+      }
+
+      const button = findFeraLoadMoreButton();
+      if (!button) {
+        stoppedReason = "load_more_missing";
+        break;
+      }
+
+      const beforeFingerprint = getFeraPageFingerprint();
+      attempts += 1;
+      button.scrollIntoView({ block: "center" });
+      button.click();
+      const progressed = await waitForFeraProgress(beforeFingerprint, 8_000);
+      if (!progressed) {
+        errors.push(`Load More attempt ${attempts} did not add Fera reviews.`);
+        stoppedReason = "no_progress";
+        break;
+      }
+      pagesLoaded += 1;
+    }
+
+    const limitedReviews = dedupeReviews(reviews).slice(0, FERA_REVIEW_LIMIT);
+    return {
+      reviews: limitedReviews,
+      diagnostics: {
+        provider: "fera",
+        method: "provider_load_more",
+        expectedCount: null,
+        configuredLimit: FERA_REVIEW_LIMIT,
+        initialCount: 0,
+        finalDomCount: getFeraReviewCount(),
+        extractedCount: limitedReviews.length,
+        attempts,
+        pagesLoaded,
+        complete: stoppedReason === "configured_limit_reached" || stoppedReason === "load_more_missing",
+        stoppedReason: stoppedReason || "completed",
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  function getFeraReviewSelector() {
+    return [
+      "[data-fera-review]",
+      ".fera-review",
+      ".fera-review-card",
+      ".fera-review-item",
+      "[class*='fera-review-item']",
+      "[class*='fera-review-card']",
+    ].join(",");
+  }
+
+  function extractFeraReviews() {
+    return Array.from(document.querySelectorAll(getFeraReviewSelector()))
+      .map((node) => extractReviewFromContainer(node))
+      .filter(Boolean)
+      .map((review) => ({ ...review, source: "fera-dom" }));
+  }
+
+  function getFeraReviewCount() {
+    return document.querySelectorAll(getFeraReviewSelector()).length;
+  }
+
+  function getFeraPageFingerprint() {
+    return extractFeraReviews()
+      .map((review) => reviewContentKey(review))
+      .join("##")
+      .slice(0, 20_000);
+  }
+
+  function findFeraLoadMoreButton() {
+    const candidates = Array.from(document.querySelectorAll(
+      "[data-fera-load-more], .fera-reviews-showMore-btn, .fera-load-more, .fera-show-more, button, a, [role='button']"
+    )).filter(isUsableAction);
+    return candidates.find((node) => /load\s*more|show\s*more|more\s*reviews|view\s*more/i.test([
+      node.textContent,
+      node.getAttribute("aria-label"),
+      node.getAttribute("data-testid"),
+      node.className,
+    ].map(clean).join(" "))) || null;
+  }
+
+  async function waitForFeraProgress(beforeFingerprint, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await sleep(250);
+      if (getFeraPageFingerprint() !== beforeFingerprint) return true;
+    }
+    return false;
+  }
+
+  async function expandReviewsIoReviews() {
+    const reviews = [];
+    const errors = [];
+    const startedAt = Date.now();
+    const initialCount = getReviewsIoReviewCount();
+    let attempts = 0;
+    let pagesLoaded = 0;
+    let stoppedReason = "";
+
+    while (reviews.length < REVIEWS_IO_REVIEW_LIMIT) {
+      reviews.push(...extractReviewsIoReviews());
+      reviews.push(...extractProviderReviews(
+        state.networkPayloads.filter((payload) => detectSource(payload.url) === "reviews.io")
+      ));
+      const uniqueReviews = dedupeReviews(reviews);
+      reviews.length = 0;
+      reviews.push(...uniqueReviews);
+
+      if (reviews.length >= REVIEWS_IO_REVIEW_LIMIT) {
+        stoppedReason = "configured_limit_reached";
+        break;
+      }
+      if (Date.now() - startedAt >= REVIEWS_IO_LOAD_TIMEOUT_MS) {
+        stoppedReason = "timeout";
+        break;
+      }
+
+      const nextButton = findReviewsIoNextButton();
+      if (!nextButton) {
+        stoppedReason = "next_button_missing";
+        break;
+      }
+
+      const beforeFingerprint = getReviewsIoPageFingerprint();
+      const beforePayloadCount = state.networkPayloads.length;
+      attempts += 1;
+      nextButton.scrollIntoView({ block: "center" });
+      nextButton.click();
+      const progressed = await waitForReviewsIoProgress(
+        beforeFingerprint,
+        beforePayloadCount,
+        6_000
+      );
+      if (!progressed) {
+        errors.push(`Next page attempt ${attempts} did not change REVIEWS.io reviews.`);
+        stoppedReason = "no_progress";
+        break;
+      }
+      pagesLoaded += 1;
+    }
+
+    const limitedReviews = dedupeReviews(reviews).slice(0, REVIEWS_IO_REVIEW_LIMIT);
+    return {
+      reviews: limitedReviews,
+      diagnostics: {
+        provider: "reviews.io",
+        method: "provider_pagination",
+        expectedCount: null,
+        configuredLimit: REVIEWS_IO_REVIEW_LIMIT,
+        initialCount,
+        finalDomCount: getReviewsIoReviewCount(),
+        extractedCount: limitedReviews.length,
+        attempts,
+        pagesLoaded,
+        complete: stoppedReason === "configured_limit_reached" || stoppedReason === "next_button_missing",
+        stoppedReason: stoppedReason || "completed",
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  function extractReviewsIoReviews() {
+    return Array.from(document.querySelectorAll(
+      ".R-ContentList__item, [class$='Reviews-carousel__review-item']"
+    ))
+      .map((node) => extractReviewFromContainer(node))
+      .filter(Boolean);
+  }
+
+  function getReviewsIoReviewCount() {
+    return document.querySelectorAll(
+      ".R-ContentList__item, [class$='Reviews-carousel__review-item']"
+    ).length;
+  }
+
+  function getReviewsIoPageFingerprint() {
+    return extractReviewsIoReviews()
+      .map((review) => reviewContentKey(review))
+      .join("##")
+      .slice(0, 20_000);
+  }
+
+  function findReviewsIoNextButton() {
+    const controls = Array.from(document.querySelectorAll(
+      ".R-PaginationControls__item, #ReviewsWidget [role='button']"
+    )).filter(isUsableAction);
+    const currentIndex = controls.findIndex((node) =>
+      /current page/i.test(node.getAttribute("aria-label") || "")
+      || node.classList.contains("isActive")
+    );
+    if (currentIndex >= 0) {
+      const current = reviewsIoPageNumber(
+        controls[currentIndex].getAttribute("aria-label")
+        || controls[currentIndex].textContent
+      );
+      const nextPage = controls.find((node) => {
+        const page = reviewsIoPageNumber(node.getAttribute("aria-label") || node.textContent);
+        return Boolean(current && page === current + 1);
+      });
+      if (nextPage) return nextPage;
+      return controls.slice(currentIndex + 1).find((node) =>
+        /next|forward|right/i.test([
+          node.textContent,
+          node.getAttribute("aria-label"),
+          node.getAttribute("data-type"),
+        ].map(clean).join(" "))
+      ) || null;
+    }
+
+    return controls.find((node) =>
+      /next|forward|right/i.test([
+        node.textContent,
+        node.getAttribute("aria-label"),
+        node.getAttribute("data-type"),
+      ].map(clean).join(" "))
+    ) || null;
+  }
+
+  function reviewsIoPageNumber(value) {
+    const match = String(value || "").replaceAll(",", "").match(/\d+/);
+    return positiveInteger(match?.[0]);
+  }
+
+  async function waitForReviewsIoProgress(beforeFingerprint, beforePayloadCount, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await sleep(250);
+      const fingerprint = getReviewsIoPageFingerprint();
+      if (fingerprint && fingerprint !== beforeFingerprint) return true;
+      if (state.networkPayloads.length > beforePayloadCount) return true;
+    }
+    return false;
+  }
+
+  async function expandShopifyProductReviews() {
+    const reviews = [];
+    const errors = [];
+    const startedAt = Date.now();
+    const initialCount = getShopifyProductReviewCount();
+    const expectedCount = extractShopifyProductReviewsExpectedCount();
+    let attempts = 0;
+    let pagesLoaded = 0;
+    let stoppedReason = "";
+
+    while (reviews.length < SHOPIFY_PRODUCT_REVIEWS_LIMIT) {
+      reviews.push(...extractShopifyProductReviews());
+      const uniqueReviews = dedupeReviews(reviews);
+      reviews.length = 0;
+      reviews.push(...uniqueReviews);
+
+      if (reviews.length >= SHOPIFY_PRODUCT_REVIEWS_LIMIT) {
+        stoppedReason = "configured_limit_reached";
+        break;
+      }
+      if (expectedCount && reviews.length >= expectedCount) {
+        stoppedReason = "expected_count_reached";
+        break;
+      }
+      if (Date.now() - startedAt >= SHOPIFY_PRODUCT_REVIEWS_LOAD_TIMEOUT_MS) {
+        stoppedReason = "timeout";
+        break;
+      }
+
+      const nextButton = findShopifyProductReviewsNextButton();
+      if (!nextButton) {
+        stoppedReason = "next_button_missing";
+        break;
+      }
+
+      const beforeFingerprint = getShopifyProductReviewsFingerprint();
+      attempts += 1;
+      nextButton.scrollIntoView({ block: "center" });
+      nextButton.click();
+      const progressed = await waitForShopifyProductReviewsPageChange(beforeFingerprint, 5_000);
+      if (!progressed) {
+        errors.push(`Next page attempt ${attempts} did not change Shopify Product Reviews.`);
+        stoppedReason = "no_progress";
+        break;
+      }
+      pagesLoaded += 1;
+    }
+
+    const limitedReviews = dedupeReviews(reviews).slice(0, SHOPIFY_PRODUCT_REVIEWS_LIMIT);
+    return {
+      reviews: limitedReviews,
+      diagnostics: {
+        provider: "shopify-product-reviews",
+        method: "provider_pagination",
+        expectedCount,
+        configuredLimit: SHOPIFY_PRODUCT_REVIEWS_LIMIT,
+        initialCount,
+        finalDomCount: getShopifyProductReviewCount(),
+        extractedCount: limitedReviews.length,
+        attempts,
+        pagesLoaded,
+        complete: Boolean(expectedCount && limitedReviews.length >= expectedCount),
+        stoppedReason: stoppedReason || "completed",
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  function extractShopifyProductReviews() {
+    return Array.from(document.querySelectorAll(".spr-review"))
+      .map((node) => extractReviewFromContainer(node))
+      .filter(Boolean);
+  }
+
+  function getShopifyProductReviewCount() {
+    return document.querySelectorAll(".spr-review").length;
+  }
+
+  function getShopifyProductReviewsFingerprint() {
+    return extractShopifyProductReviews()
+      .map((review) => reviewContentKey(review))
+      .join("##")
+      .slice(0, 20_000);
+  }
+
+  function findShopifyProductReviewsNextButton() {
+    const candidates = Array.from(document.querySelectorAll([
+      ".spr-pagination-next a",
+      ".spr-pagination-next button",
+      ".spr-pagination a[rel='next']",
+      ".spr-pagination [aria-label*='next' i]",
+    ].join(",")));
+    return candidates.find(isUsableAction) || null;
+  }
+
+  async function waitForShopifyProductReviewsPageChange(beforeFingerprint, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await sleep(250);
+      const fingerprint = getShopifyProductReviewsFingerprint();
+      if (fingerprint && fingerprint !== beforeFingerprint) return true;
+    }
+    return false;
+  }
+
+  function extractShopifyProductReviewsExpectedCount() {
+    const counts = [];
+    for (const node of document.querySelectorAll(".spr-summary-caption, .spr-summary")) {
+      const match = clean(node.textContent).match(/([\d,]+)\s+(?:customer\s+)?reviews?/i);
+      const count = positiveInteger(match?.[1]);
+      if (count) counts.push(count);
+    }
+    return counts.length > 0 ? Math.max(...counts) : null;
+  }
+
   async function expandOkendoReviews() {
+    const apiExpansion = await collectOkendoApiReviews();
+    if (apiExpansion.reviews.length > 0) return apiExpansion;
+
     const reviews = [];
     const errors = [];
     const startedAt = Date.now();
@@ -1301,6 +1715,7 @@
     });
     let attempts = 0;
     let pagesLoaded = 0;
+    let consecutiveNoProgress = 0;
     let stoppedReason = "";
 
     while (reviews.length < OKENDO_REVIEW_LIMIT) {
@@ -1313,12 +1728,20 @@
         stoppedReason = "configured_limit_reached";
         break;
       }
+      if (expectedCount && reviews.length >= expectedCount) {
+        stoppedReason = "expected_count_reached";
+        break;
+      }
       if (Date.now() - startedAt >= OKENDO_LOAD_TIMEOUT_MS) {
         stoppedReason = "timeout";
         break;
       }
 
-      const button = findOkendoShowMoreButton();
+      let button = findOkendoShowMoreButton();
+      if (!button && reviews.length < (expectedCount || OKENDO_REVIEW_LIMIT)) {
+        await waitForOkendoControlRemount(3_000);
+        button = findOkendoShowMoreButton();
+      }
       if (!button) {
         recordDiagnostic("okendo_button_not_found", {
           reviewCount: reviews.length,
@@ -1348,26 +1771,34 @@
       const progressed = await waitForOkendoProgress(
         beforeFingerprint,
         beforePayloadKey,
-        5_000
+        10_000
       );
       if (!progressed) {
+        consecutiveNoProgress += 1;
         recordDiagnostic("okendo_no_progress", {
+          consecutiveNoProgress,
           reviewCountAfter: getOkendoReviewCount(),
           urlAfter: location.href,
           payloadChanged: getOkendoPayloadKey() !== beforePayloadKey,
           fingerprintChanged: getOkendoPageFingerprint() !== beforeFingerprint,
         });
         errors.push(`Show More attempt ${attempts} did not add or replace Okendo reviews.`);
-        stoppedReason = "no_progress";
-        break;
+        if (consecutiveNoProgress >= 3) {
+          stoppedReason = "no_progress";
+          break;
+        }
+        await sleep(1_500);
+        continue;
       }
 
+      consecutiveNoProgress = 0;
       pagesLoaded += 1;
       recordDiagnostic("okendo_progress", {
         pagesLoaded,
         reviewCount: getOkendoReviewCount(),
         urlAfter: location.href,
       });
+      await waitForOkendoControlRemount(3_000);
     }
 
     if (!stoppedReason) stoppedReason = "completed";
@@ -1390,6 +1821,223 @@
         errors,
       },
     };
+  }
+
+  async function collectOkendoApiReviews() {
+    const seed = readOkendoEmbeddedPayloads().find((body) => {
+      return Array.isArray(body.reviews) && body.reviews.length > 0;
+    });
+    if (!seed) return { reviews: [], diagnostics: null };
+
+    const reviews = dedupeReviews(extractProviderReviews([{
+      url: "https://reviewlens.local/okendo/embedded-meta",
+      body: seed,
+    }]));
+    let nextUrl = resolveOkendoApiUrl(seed.reviewsNextUrl || seed.nextUrl);
+    let pagesLoaded = 0;
+    const errors = [];
+    const startedAt = Date.now();
+
+    while (nextUrl && reviews.length < OKENDO_REVIEW_LIMIT) {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: "REVIEWLENS_FETCH_REVIEW_JSON",
+          url: nextUrl,
+        });
+        if (!response?.ok || !response.result?.ok) {
+          errors.push(response?.error || `Okendo API returned HTTP ${response?.result?.status || 0}.`);
+          break;
+        }
+
+        const body = response.result.data;
+        if (!body || typeof body !== "object") break;
+        reviews.push(...extractProviderReviews([{ url: nextUrl, body }]));
+        const uniqueReviews = dedupeReviews(reviews);
+        reviews.length = 0;
+        reviews.push(...uniqueReviews);
+        pagesLoaded += 1;
+        nextUrl = resolveOkendoApiUrl(body.reviewsNextUrl || body.nextUrl);
+        if (!Array.isArray(body.reviews) || body.reviews.length === 0) break;
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+        break;
+      }
+    }
+
+    const expectedCount = positiveInteger(
+      seed.reviewAggregate?.reviewCount || seed.reviewAggregate?.ratingAndReviewCount
+    );
+    const limitedReviews = dedupeReviews(reviews).slice(0, OKENDO_REVIEW_LIMIT);
+    const stoppedReason = limitedReviews.length >= OKENDO_REVIEW_LIMIT
+      ? "configured_limit_reached"
+      : (expectedCount && limitedReviews.length >= expectedCount)
+        ? "expected_count_reached"
+        : (errors.length ? "api_error" : "api_exhausted");
+
+    recordDiagnostic("okendo_api_expansion", {
+      extractedCount: limitedReviews.length,
+      expectedCount,
+      pagesLoaded,
+      stoppedReason,
+      errors,
+    });
+
+    return {
+      reviews: limitedReviews,
+      diagnostics: {
+        provider: "okendo",
+        method: "provider_api_pagination",
+        expectedCount,
+        configuredLimit: OKENDO_REVIEW_LIMIT,
+        initialCount: Array.isArray(seed.reviews) ? seed.reviews.length : 0,
+        finalDomCount: getOkendoReviewCount(),
+        extractedCount: limitedReviews.length,
+        attempts: pagesLoaded,
+        pagesLoaded,
+        complete: stoppedReason === "configured_limit_reached" || stoppedReason === "expected_count_reached",
+        stoppedReason,
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  async function collectJunipApiReviews() {
+    const productNode = document.querySelector(".junip-product-review[data-product-id]");
+    const storeNode = document.querySelector(".junip-store-key[data-store-key]");
+    const productId = clean(productNode?.getAttribute("data-product-id"));
+    const storeKey = clean(storeNode?.getAttribute("data-store-key"));
+    if (!productId || !storeKey) {
+      return {
+        reviews: [],
+        diagnostics: {
+          provider: "junip",
+          method: "provider_api_pagination",
+          expectedCount: null,
+          configuredLimit: CAPTURE_LIMIT,
+          initialCount: 0,
+          finalDomCount: getReviewNodeCount(),
+          extractedCount: 0,
+          attempts: 0,
+          pagesLoaded: 0,
+          complete: false,
+          stoppedReason: "missing_product_metadata",
+          errors: [],
+        },
+      };
+    }
+
+    const reviews = [];
+    const errors = [];
+    const startedAt = Date.now();
+    let pagesLoaded = 0;
+    let nextUrl = buildJunipReviewsUrl(productId, storeKey);
+
+    while (nextUrl && reviews.length < CAPTURE_LIMIT) {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: "REVIEWLENS_FETCH_REVIEW_JSON",
+          url: nextUrl,
+          headers: {
+            "junip-store-key": storeKey,
+          },
+        });
+        if (!response?.ok || !response.result?.ok) {
+          errors.push(response?.error || `Junip API returned HTTP ${response?.result?.status || 0}.`);
+          break;
+        }
+
+        const body = response.result.data;
+        const pageReviews = extractProviderReviews([{
+          url: nextUrl,
+          body,
+        }]);
+        if (pageReviews.length === 0) break;
+
+        reviews.push(...pageReviews);
+        pagesLoaded += 1;
+        const after = clean(body?.meta?.after);
+        nextUrl = after ? buildJunipReviewsUrl(productId, storeKey, after) : null;
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+        break;
+      }
+    }
+
+    const limitedReviews = dedupeReviews(reviews).slice(0, CAPTURE_LIMIT);
+    const stoppedReason = limitedReviews.length >= CAPTURE_LIMIT
+      ? "configured_limit_reached"
+      : errors.length
+        ? "api_error"
+        : "api_exhausted";
+
+    recordDiagnostic("junip_api_expansion", {
+      extractedCount: limitedReviews.length,
+      pagesLoaded,
+      stoppedReason,
+      errors,
+    });
+
+    return {
+      reviews: limitedReviews,
+      diagnostics: {
+        provider: "junip",
+        method: "provider_api_pagination",
+        expectedCount: null,
+        configuredLimit: CAPTURE_LIMIT,
+        initialCount: pagesLoaded > 0 ? Math.min(50, limitedReviews.length) : 0,
+        finalDomCount: getReviewNodeCount(),
+        extractedCount: limitedReviews.length,
+        attempts: pagesLoaded,
+        pagesLoaded,
+        complete: stoppedReason === "configured_limit_reached" || stoppedReason === "api_exhausted",
+        stoppedReason,
+        elapsedMs: Date.now() - startedAt,
+        errors,
+      },
+    };
+  }
+
+  function buildJunipReviewsUrl(productId, storeKey, after = "") {
+    const url = new URL(
+      `https://apid.juniphq.com/en/v2/products/remote/${encodeURIComponent(productId)}/reviews`
+    );
+    url.searchParams.set("page_size", "50");
+    // Vessi's visible Junip widget is currently sorted by "Highest rated".
+    url.searchParams.set("sort_field", "rating");
+    url.searchParams.set("sort_order", "desc");
+    if (after) url.searchParams.set("page_after", after);
+    url.searchParams.set("v", storeKey);
+    return url.toString();
+  }
+
+  function readOkendoEmbeddedPayloads() {
+    const payloads = [];
+    for (const node of document.querySelectorAll("script[data-oke-metafield-data]")) {
+      try {
+        const body = JSON.parse(node.textContent || "{}");
+        if (body && typeof body === "object") payloads.push(body);
+      } catch {}
+    }
+    return payloads;
+  }
+
+  function resolveOkendoApiUrl(value) {
+    if (!value) return null;
+    try {
+      const raw = String(value);
+      const normalized = raw.startsWith("/stores/")
+        ? `/v1${raw}`
+        : raw.startsWith("stores/")
+          ? `/v1/${raw}`
+          : raw;
+      const url = new URL(normalized, "https://api.okendo.io");
+      return url.protocol === "https:" && url.hostname === "api.okendo.io"
+        ? url.toString()
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   function extractOkendoReviews() {
@@ -1423,7 +2071,7 @@
     ].join(","));
 
     state.diagnostics.okendoButtons = candidates.map(describeElement);
-    const button = candidates.find((node) => {
+    const candidate = candidates.find((node) => {
       if (!isUsableAction(node)) return false;
       if (node.hidden) return false;
       const text = [
@@ -1434,15 +2082,31 @@
         node.className,
       ].map(clean).join(" ");
       if (/read more|write a review|sort|filter/i.test(text)) return false;
-      return /show\s*more|load\s*more|more\s*reviews|view\s*more/i.test(text)
+      return /show\s*more(?:\s*reviews?)?|load\s*more(?:\s*reviews?)?|more\s*reviews|view\s*more\s*reviews/i.test(text)
         || node.matches(".oke-showMore-button, .oke-show-more, .okeReviews-showMore, .oke-w-reviews-show-more, [data-oke-button='show-more']");
     }) || null;
+    const button = resolveOkendoActionTarget(candidate);
     recordDiagnostic("okendo_button_scan", {
       candidates: candidates.length,
       visibleCandidates: candidates.filter(isUsableAction).length,
+      matchedContainer: candidate ? describeElement(candidate) : null,
       selected: button ? describeElement(button) : null,
     });
     return button;
+  }
+
+  function resolveOkendoActionTarget(candidate) {
+    if (!candidate) return null;
+    if (candidate.matches("button, a, [role='button'], input[type='button'], input[type='submit']")) {
+      return candidate;
+    }
+
+    const interactiveChild = candidate.querySelector(
+      "button, a, [role='button'], input[type='button'], input[type='submit']"
+    );
+    if (interactiveChild && isUsableAction(interactiveChild)) return interactiveChild;
+
+    return candidate;
   }
 
   function clickOkendoAction(node) {
@@ -1475,6 +2139,15 @@
       ) {
         return true;
       }
+    }
+    return false;
+  }
+
+  async function waitForOkendoControlRemount(timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (findOkendoShowMoreButton() || getOkendoReviewCount() > 0) return true;
+      await sleep(250);
     }
     return false;
   }
@@ -1698,28 +2371,61 @@
     if (text.length < 20 || text.length > 5000) return null;
 
     const isLooxReview = container.matches(".loox-review, .grid-item.clearfix");
+    const isShopifyProductReview = container.matches(".spr-review");
+    const isReviewsIoReview = container.matches(
+      ".R-ContentList__item, [class$='Reviews-carousel__review-item']"
+    );
+    const isFeraReview = container.matches(
+      "[data-fera-review], .fera-review, .fera-review-card, .fera-review-item, [class*='fera-review-item'], [class*='fera-review-card']"
+    );
     const title = isLooxReview ? "" : pickText(container, [
       ".jdgm-rev__title",
       ".loox-review__title",
       ".yotpo-review-title",
       ".stamped-review-title",
+      ".spr-review-header-title",
+      ".item__review .R-TextHeading",
+      "[class*='review-item-heading']",
+      "[data-fera-review-title]",
+      ".fera-review-title",
+      ".fera-review__title",
+      ".fera-review-heading",
       ".okeReviews-review-title",
       ".oke-reviewContent-title",
       "[itemprop='name']",
       "[class*='title' i]",
     ]);
-    const author = pickText(container, [
+    const author = isShopifyProductReview
+      ? clean(container.querySelector(".spr-review-header-byline strong:first-of-type")?.textContent)
+      : isReviewsIoReview
+        ? pickText(container, [
+          ".c-meta__authorName .cssVar-authorName",
+      ".c-meta__authorName",
+          "[class$='Reviews-carousel__review-item-footer'] .o-text-overline-md",
+          "[class$='Reviews-carousel__review-item-footer'] p:first-child",
+        ])
+      : isFeraReview
+        ? pickText(container, [
+          "[data-fera-review-author]",
+          ".fera-review-author",
+          ".fera-review__author",
+          ".fera-author",
+          ".fera-customer-display-name",
+          ".fera-customer-display-name-text",
+        ])
+      : pickText(container, [
       ".block.title",
       ".jdgm-rev__author",
       ".loox-review__author",
       ".yotpo-user-name",
       ".stamped-review-header-title",
+      ".spr-review-header-byline",
       ".okeReviews-review-reviewer-name",
       ".oke-w-reviewer-name",
       "[itemprop='author']",
       "[class*='author' i]",
       "[class*='name' i]",
-    ]);
+      ]);
     const body = pickText(container, [
       ".pre-wrap.main-text",
       "[data-testid*='-text']",
@@ -1728,23 +2434,54 @@
       ".content-review",
       ".yotpo-review-content",
       ".stamped-review-content-body",
+      ".spr-review-content-body",
+      ".item__review .R-TextBody--xs",
+      "[class$='Reviews-carousel__review-item-quote']",
+      "[class*='review-item-content']",
+      "[class*='review-item-body']",
+      "[data-fera-review-body]",
+      ".fera-review-body",
+      ".fera-review__body",
+      ".fera-review-content",
+      ".fera-review__content",
       ".okeReviews-review-primary",
       ".oke-reviewContent-body",
       "[itemprop='reviewBody']",
       "[class*='body' i]",
       "[class*='content' i]",
     ]) || text;
-    const date = pickText(container, [
+    const date = isShopifyProductReview
+      ? clean(container.querySelector(".spr-review-header-byline strong:last-of-type")?.textContent)
+      : isReviewsIoReview
+        ? pickText(container, [
+          ".c-reviewDateTime",
+          "[class$='Reviews-carousel__review-item-footer'] .o-text-caption-md",
+          "[class$='Reviews-carousel__review-item-footer'] p:last-child",
+          "[class*='review-item-date']",
+        ])
+      : isFeraReview
+        ? pickText(container, [
+          "[data-fera-review-date]",
+          "time",
+          ".fera-review-date",
+          ".fera-review__date",
+          ".fera-review-date-val",
+          "[class*='date' i]",
+        ])
+      : pickText(container, [
       ".jdgm-rev__timestamp",
       ".loox-review__date",
       ".yotpo-review-date",
       ".stamped-review-date",
+      ".spr-review-header-byline",
+      ".c-reviewDateTime",
+      "[class*='review-item-date']",
       ".okeReviews-review-date",
       ".oke-w-reviewMinimal-date",
       "time",
       "[itemprop='datePublished']",
       "[class*='date' i]",
-    ]);
+      ]);
     const rating = readRating(container);
 
     if (!isLikelyReview({ container, title, body, author, date, rating, text, isLooxReview })) return null;
@@ -1752,12 +2489,20 @@
     return normalizeReview({
       source: container.matches(".oke-w-reviews-list-item")
         ? "okendo-dom"
+        : container.matches(".junip-review-list-item-container, .junip-review, .junip-product-review")
+          ? "junip-dom"
         : isLooxReview
           ? "loox-dom"
           : container.matches(".yotpo-review")
             ? "yotpo-dom"
             : container.matches(".stamped-review")
               ? "stamped-dom"
+            : container.matches(".spr-review")
+              ? "shopify-product-reviews-dom"
+            : isReviewsIoReview
+              ? "reviews.io-dom"
+            : isFeraReview
+              ? "fera-dom"
             : "visible-dom",
       title,
       body,
@@ -1770,7 +2515,7 @@
   function isLikelyReview({ container, title, body, author, date, rating, text, isLooxReview }) {
     const hasSchema = Boolean(container.matches("[itemprop='review']") || container.querySelector("[itemprop='reviewBody']"));
     const hasKnownReviewClass = Boolean(
-      container.matches(".jdgm-rev, .loox-review, .grid-item.clearfix, .yotpo-review, .stamped-review, .okeReviews-review, .oke-w-reviews-list-item, .okeReviews-review")
+      container.matches(".jdgm-rev, .loox-review, .grid-item.clearfix, .yotpo-review, .stamped-review, .spr-review, .R-ContentList__item, [class$='Reviews-carousel__review-item'], [data-fera-review], .fera-review, .fera-review-card, .fera-review-item, [class*='fera-review-item'], [class*='fera-review-card'], .okeReviews-review, .oke-w-reviews-list-item, .okeReviews-review, .junip-review-list-item-container, .junip-review, .junip-product-review")
     );
     const hasProviderReviewId = Boolean(container.getAttribute("data-review-id"));
     const hasReviewBody = Boolean(body && body !== text);
@@ -1793,9 +2538,21 @@
       ".grid-item.clearfix",
       ".yotpo-review",
       ".stamped-review",
+      ".spr-review",
+      ".R-ContentList__item",
+      "[class$='Reviews-carousel__review-item']",
+      "[data-fera-review]",
+      ".fera-review",
+      ".fera-review-card",
+      ".fera-review-item",
+      "[class*='fera-review-item']",
+      "[class*='fera-review-card']",
       ".okeReviews-review",
       ".oke-w-reviews-list-item",
       ".okeReviews-review",
+      ".junip-review-list-item-container",
+      ".junip-review",
+      ".junip-product-review",
       "[itemprop='review']",
       "[data-review-id]",
     ];
@@ -1809,6 +2566,9 @@
       loox: document.querySelectorAll(".loox-review, .grid-item.clearfix, #loox-inline-reviews .review").length,
       yotpo: document.querySelectorAll(".yotpo-review").length,
       stamped: document.querySelectorAll(".stamped-review").length,
+      shopifyProductReviews: document.querySelectorAll(".spr-review").length,
+      reviewsIo: document.querySelectorAll(".R-ContentList__item, [class$='Reviews-carousel__review-item']").length,
+      fera: document.querySelectorAll("[data-fera-review], .fera-review, .fera-review-card, .fera-review-item, [class*='fera-review-item'], [class*='fera-review-card']").length,
       stampedBadge: document.querySelectorAll(".stamped-product-reviews-badge").length,
       schemaReviews: document.querySelectorAll("[itemprop='review']").length,
       reviewDataIds: document.querySelectorAll("[data-review-id]").length,
@@ -1825,13 +2585,23 @@
       if (/loox/i.test(url)) providers.add("loox");
       if (/yotpo/i.test(url)) providers.add("yotpo");
       if (/stamped/i.test(url)) providers.add("stamped");
+      if (/reviews\.io|reviews\.co\.uk/i.test(url)) providers.add("reviews.io");
+      if (/fera\.ai|app\.fera\.ai/i.test(url)) providers.add("fera");
       if (/bazaarvoice/i.test(url)) providers.add("bazaarvoice");
       if (/powerreviews/i.test(url)) providers.add("powerreviews");
     }
 
     for (const [name, count] of Object.entries(visibleCounts)) {
-      if (count > 0 && ["okendo", "junip", "judgeMe", "loox", "yotpo", "stamped"].includes(name)) {
-        providers.add(name === "judgeMe" ? "judge.me" : name);
+      if (count > 0 && ["okendo", "junip", "judgeMe", "loox", "yotpo", "stamped", "shopifyProductReviews", "reviewsIo", "fera"].includes(name)) {
+        providers.add(name === "judgeMe"
+          ? "judge.me"
+          : name === "shopifyProductReviews"
+            ? "shopify-product-reviews"
+          : name === "reviewsIo"
+            ? "reviews.io"
+            : name === "fera"
+              ? "fera"
+            : name);
       }
     }
 
@@ -1846,12 +2616,14 @@
       visibleCounts.loox,
       visibleCounts.yotpo,
       visibleCounts.stamped,
+      visibleCounts.shopifyProductReviews,
+      visibleCounts.reviewsIo,
       visibleCounts.schemaReviews,
       visibleCounts.reviewDataIds,
     ].some((count) => count > 0);
     const hasReviewNetwork = networkPayloads.length > 0;
     const hasKnownProviderNetwork = networkPayloads.some((payload) =>
-      /okendo|juniphq|judgeme|judge\.me|loox|yotpo|stamped|bazaarvoice|powerreviews/i.test(payload.url)
+      /okendo|juniphq|judgeme|judge\.me|loox|yotpo|stamped|reviews\.io|reviews\.co\.uk|bazaarvoice|powerreviews/i.test(payload.url)
     );
 
     if (reviewCount > 0 || hasVisibleMatches) {
@@ -1965,6 +2737,8 @@
     if (/loox/i.test(url)) return "loox";
     if (/yotpo/i.test(url)) return "yotpo";
     if (/stamped/i.test(url)) return "stamped";
+    if (/reviews\.io|reviews\.co\.uk/i.test(url)) return "reviews.io";
+    if (/fera\.ai|app\.fera\.ai/i.test(url)) return "fera";
     if (/okendo|okeReviews/i.test(url)) return "okendo";
     if (/juniphq/i.test(url)) return "junip";
     if (/bazaarvoice/i.test(url)) return "bazaarvoice";
@@ -2015,9 +2789,9 @@
       /review|rating|score|stars|author|customer|date|title|display_name|reviewer|published|created_at|createdat|review_title|review_message|review_content/i.test(key)
     );
 
-    if (source === "yotpo" || source === "loox" || source === "stamped") {
+    if (source === "yotpo" || source === "loox" || source === "stamped" || source === "reviews.io" || source === "fera") {
       const hasProviderBody = keys.some((key) =>
-        ["review_content", "reviewcontent", "review_message", "reviewmessage", "review_body", "reviewbody", "content", "message", "text", "summary"].includes(key)
+        ["review_content", "reviewcontent", "review_message", "reviewmessage", "review_body", "reviewbody", "content", "comments", "message", "text", "summary", "review_text"].includes(key)
       );
 
       return (hasBody || hasProviderBody) && (hasReviewHint || hasProviderBody);
@@ -2045,9 +2819,9 @@
     const shared = {
       body: ["body", "reviewBody", "review_body", "body_html", "bodyHtml", "content", "review", "description", "message", "comment", "text"],
       title: ["title", "headline", "name", "subject", "review_title", "reviewTitle"],
-      author: ["author", "author_name", "display_name", "reviewer_name", "public_reviewer_name", "user_name", "customer_name", "name", "customer", "user.display_name", "user.name", "reviewer.display_name", "reviewer.name"],
+      author: ["author", "author_name", "display_name", "reviewer_name", "public_reviewer_name", "user_name", "customer_name", "name", "customer", "user.display_name", "user.displayName", "user.name", "reviewer.display_name", "reviewer.displayName", "reviewer.name"],
       rating: ["rating", "score", "stars", "ratingValue", "review_rating", "reviewScore"],
-      date: ["date", "created_at", "createdAt", "datePublished", "published_at", "review_date", "reviewDate", "created_at_ts"],
+      date: ["date", "created_at", "createdAt", "dateCreated", "datePublished", "published_at", "review_date", "reviewDate", "created_at_ts"],
     };
 
     if (source === "loox") {
@@ -2080,6 +2854,26 @@
       };
     }
 
+    if (source === "reviews.io") {
+      return {
+        body: [...shared.body, "comments", "review.comments", "review_content"],
+        title: [...shared.title, "review_title", "review.review_title"],
+        author: [...shared.author, "author", "review.author"],
+        rating: [...shared.rating, "rating", "review.rating"],
+        date: [...shared.date, "date_created", "review.date_created", "time_ago"],
+      };
+    }
+
+    if (source === "fera") {
+      return {
+        body: [...shared.body, "review_text", "review_body", "review.body", "review.content"],
+        title: [...shared.title, "review_title", "review.title"],
+        author: [...shared.author, "reviewer", "review.author", "customer.name"],
+        rating: [...shared.rating, "review.rating"],
+        date: [...shared.date, "date_created", "created", "review.created_at"],
+      };
+    }
+
     return shared;
   }
 
@@ -2094,6 +2888,22 @@
 
     if (source === "stamped") {
       return ["data", "reviews", "response.reviews", "result.reviews", "results", "payload.reviews"];
+    }
+
+    if (source === "reviews.io") {
+      return ["reviews", "data.reviews", "data", "results", "items"];
+    }
+
+    if (source === "fera") {
+      return ["reviews", "data.reviews", "data", "results", "items", "entries"];
+    }
+
+    if (source === "okendo") {
+      return ["reviews", "data.reviews", "response.reviews"];
+    }
+
+    if (source === "junip") {
+      return ["data"];
     }
 
     return [];
@@ -2214,6 +3024,22 @@
     const raw = explicit?.getAttribute("content") || explicit?.getAttribute("aria-label") || explicit?.getAttribute("title") || explicit?.textContent || "";
     const explicitMatch = String(raw).match(/([0-5](?:\.\d+)?)/);
     if (explicitMatch) return Number(explicitMatch[1]);
+
+    const reviewsIoStars = root.querySelectorAll(
+      "[class*='Reviews-carousel__review-item-rating'] svg"
+    ).length;
+    if (reviewsIoStars > 0) return Math.min(reviewsIoStars, 5);
+
+    const feraRating = root.querySelector(
+      "[data-fera-rating], .fera-rating, .fera-review-rating, .fera-review__rating, [class*='rating']"
+    );
+    const feraRaw = feraRating?.getAttribute("data-rating")
+      || feraRating?.getAttribute("aria-label")
+      || feraRating?.getAttribute("title")
+      || feraRating?.textContent
+      || "";
+    const feraMatch = String(feraRaw).match(/([0-5](?:\.\d+)?)/);
+    if (feraMatch) return Number(feraMatch[1]);
 
     const filledStars = root.querySelectorAll(".jdgm-star.jdgm--on, .loox-icon-star, .yotpo-icon-star, .stamped-fa-star, [class*='star'][class*='full']").length;
     return filledStars > 0 ? Math.min(filledStars, 5) : null;

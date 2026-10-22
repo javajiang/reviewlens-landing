@@ -3,7 +3,7 @@ const APP_BASE_URL = "https://www.reviewlens.org";
 const state = {
   data: null,
   activeView: "analysis",
-  activeTab: "negative",
+  activeTab: "all",
   context: null,
   auth: null,
   user: null,
@@ -25,6 +25,7 @@ const totalEl = document.getElementById("total");
 const negativeEl = document.getElementById("negative");
 const positiveEl = document.getElementById("positive");
 const listEl = document.getElementById("list");
+const scrapeDiagnosticsEl = document.getElementById("scrape-diagnostics");
 const storeNameEl = document.getElementById("store-name");
 const storeMetaEl = document.getElementById("store-meta");
 const productTitleEl = document.getElementById("product-title");
@@ -334,6 +335,10 @@ async function scrapeCurrentProduct() {
 
     if (!response?.ok) throw new Error(response?.error || "Scrape failed.");
 
+    if (!response.result?.ok) {
+      throw new Error(response.result?.error || "The page crawler could not extract reviews.");
+    }
+
     state.data = response.result;
     state.analysisResult = null;
     renderResult();
@@ -369,6 +374,15 @@ function renderResult() {
   totalEl.textContent = String(data?.count || 0);
   negativeEl.textContent = String(data?.negativeCount || 0);
   positiveEl.textContent = String(data?.positiveCount || 0);
+  if (scrapeDiagnosticsEl) {
+    const debug = data?.debug || {};
+    scrapeDiagnosticsEl.textContent = JSON.stringify({
+      provider: debug.providerDetection?.primary || "unknown",
+      detectedProviders: debug.detectedProviders || [],
+      diagnosis: debug.diagnosis || "",
+      loadMore: debug.loadMore || null,
+    }, null, 2);
+  }
   state.activeView = "analysis";
   viewButtons.forEach((item) => item.classList.toggle("active", item.dataset.view === state.activeView));
   renderViews();
@@ -512,8 +526,24 @@ function buildAnalysisField(label, text, isSuggestion = false) {
 
 function renderList() {
   const data = state.data;
-  const reviews = state.activeTab === "negative" ? data?.negativeReviews || [] : data?.positiveReviews || [];
-  const label = state.activeTab === "negative" ? "Negative Reviews" : "Positive Reviews";
+  tabButtons.forEach((item) => item.classList.toggle("active", item.dataset.tab === state.activeTab));
+  const allReviews = Array.isArray(data?.reviews)
+    ? data.reviews
+    : [...(data?.negativeReviews || []), ...(data?.positiveReviews || [])];
+  const reviews = state.activeTab === "negative"
+    ? data?.negativeReviews || []
+    : state.activeTab === "positive"
+      ? data?.positiveReviews || []
+      : state.activeTab === "unrated"
+        ? allReviews.filter((review) => !hasNumericRating(review?.rating))
+        : allReviews;
+  const labels = {
+    all: "reviews",
+    negative: "negative reviews",
+    positive: "positive reviews",
+    unrated: "unrated reviews",
+  };
+  const label = labels[state.activeTab] || labels.all;
 
   listEl.innerHTML = "";
 
@@ -530,6 +560,10 @@ function renderList() {
   for (const review of reviews) {
     listEl.appendChild(buildCard(review));
   }
+}
+
+function hasNumericRating(value) {
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
 }
 
 function renderViews() {
@@ -555,6 +589,7 @@ function buildCard(review) {
       <div class="author">${escapeHtml(review.author || "Anonymous")}</div>
       <div class="rating">${escapeHtml(stars)}</div>
     </div>
+    ${review.title ? `<p class="review-title">${escapeHtml(review.title)}</p>` : ""}
     <p class="body">${escapeHtml(review.body || "")}</p>
     <div class="meta">${escapeHtml(review.source || "review")}${review.date ? ` • ${escapeHtml(review.date)}` : ""}</div>
   `;

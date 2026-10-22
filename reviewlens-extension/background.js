@@ -30,6 +30,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== "REVIEWLENS_FETCH_REVIEW_JSON") return;
+
+  handleReviewJsonRequest(message)
+    .then((result) => sendResponse({ ok: true, result }))
+    .catch((error) => sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+
+  return true;
+});
+
 async function handleScrapeRequest(url) {
   const targetUrl = String(url || "").trim();
   if (!targetUrl) throw new Error("Missing URL.");
@@ -53,7 +66,16 @@ async function handleScrapeRequest(url) {
 }
 
 async function scrapeTab(tabId, retries = false) {
-  return sendMessageWithRetry(tabId, { type: "REVIEWLENS_SCRAPE_PAGE" }, retries ? 12 : 8, 400);
+  const response = await sendMessageWithRetry(
+    tabId,
+    { type: "REVIEWLENS_SCRAPE_PAGE" },
+    retries ? 12 : 8,
+    400
+  );
+  if (!response?.ok) {
+    throw new Error(response?.error || "The page crawler could not extract reviews.");
+  }
+  return response;
 }
 
 async function sendMessageWithRetry(tabId, message, attempts, delayMs) {
@@ -141,5 +163,33 @@ async function handleJsonRequest(message) {
     status: response.status,
     ok: response.ok,
     data,
+  };
+}
+
+async function handleReviewJsonRequest(message) {
+  const url = new URL(String(message?.url || ""));
+  const isOkendo = url.hostname === "api.okendo.io" && url.pathname.startsWith("/v1/");
+  const isJunip = url.hostname === "apid.juniphq.com"
+    && /^\/[a-z-]+\/v2\/products\/remote\/[^/]+\/reviews$/i.test(url.pathname);
+  if (url.protocol !== "https:" || (!isOkendo && !isJunip)) {
+    throw new Error("Unsupported review API URL.");
+  }
+  const headers = {
+    accept: "application/json,text/plain,*/*",
+    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  };
+  if (isJunip) {
+    const storeKey = String(message?.headers?.["junip-store-key"] || "").trim();
+    if (!/^[a-z0-9_-]{8,128}$/i.test(storeKey)) throw new Error("Missing Junip store key.");
+    headers["junip-store-key"] = storeKey;
+  }
+  const response = await fetch(url.toString(), {
+    headers,
+  });
+  return {
+    ok: response.ok,
+    status: response.status,
+    contentType: response.headers.get("content-type") || "application/json",
+    data: await response.json().catch(() => null),
   };
 }

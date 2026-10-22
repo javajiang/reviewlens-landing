@@ -62,9 +62,16 @@
             <div><span>Positive</span><strong id="positive">0</strong></div>
           </section>
 
+          <details class="scrape-diagnostics">
+            <summary>Scrape diagnostics</summary>
+            <pre id="scrape-diagnostics"></pre>
+          </details>
+
           <section class="review-tabs">
-            <button class="tab active" data-tab="negative">Negative Reviews</button>
+            <button class="tab active" data-tab="all">All</button>
+            <button class="tab" data-tab="negative">Negative</button>
             <button class="tab" data-tab="positive">Positive Reviews</button>
+            <button class="tab" data-tab="unrated">Unrated</button>
           </section>
 
           <section id="list" class="list"></section>
