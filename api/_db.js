@@ -31,6 +31,7 @@ async function ensureSchema() {
           event_id TEXT UNIQUE NOT NULL,
           event_type TEXT NOT NULL,
           checkout_id TEXT,
+          subscription_id TEXT,
           customer_id TEXT,
           customer_email TEXT,
           product_id TEXT,
@@ -39,6 +40,10 @@ async function ensureSchema() {
           raw_event JSONB NOT NULL,
           processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
+      `);
+      await client.query(`
+        ALTER TABLE creem_webhook_events
+        ADD COLUMN IF NOT EXISTS subscription_id TEXT
       `);
 
       await client.query(`
@@ -53,6 +58,13 @@ async function ensureSchema() {
           plan TEXT,
           status TEXT NOT NULL,
           checkout_id TEXT,
+          creem_subscription_id TEXT,
+          current_period_start TIMESTAMPTZ,
+          current_period_end TIMESTAMPTZ,
+          next_payment_at TIMESTAMPTZ,
+          canceled_at TIMESTAMPTZ,
+          access_until TIMESTAMPTZ,
+          last_event_created_at TIMESTAMPTZ,
           source_event_id TEXT UNIQUE NOT NULL,
           raw_event JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -72,12 +84,45 @@ async function ensureSchema() {
         ADD COLUMN IF NOT EXISTS user_id TEXT
       `);
       await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS creem_subscription_id TEXT
+      `);
+      await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS current_period_start TIMESTAMPTZ
+      `);
+      await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ
+      `);
+      await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS next_payment_at TIMESTAMPTZ
+      `);
+      await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS canceled_at TIMESTAMPTZ
+      `);
+      await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS access_until TIMESTAMPTZ
+      `);
+      await client.query(`
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS last_event_created_at TIMESTAMPTZ
+      `);
+      await client.query(`
         CREATE INDEX IF NOT EXISTS subscriptions_shop_domain_idx
         ON subscriptions (shop_domain)
       `);
       await client.query(`
         CREATE INDEX IF NOT EXISTS subscriptions_user_id_idx
         ON subscriptions (user_id)
+      `);
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_creem_subscription_id_idx
+        ON subscriptions (creem_subscription_id)
+        WHERE creem_subscription_id IS NOT NULL
       `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS checkout_sessions (

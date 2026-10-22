@@ -22,10 +22,10 @@ module.exports = async (req, res) => {
         client.query('select count(*)::int as count from subscriptions'),
         client.query('select count(*)::int as count from analysis_usage'),
         client.query(
-          'select customer_email, customer_id, product_id, plan, status, checkout_id, updated_at from subscriptions order by updated_at desc limit 5'
+          'select customer_email, customer_id, product_id, plan, status, checkout_id, creem_subscription_id, current_period_end, access_until, updated_at from subscriptions order by updated_at desc limit 5'
         ),
         client.query(
-          'select event_id, event_type, customer_email, product_id, plan, status, processed_at from creem_webhook_events order by processed_at desc limit 5'
+          'select event_id, event_type, subscription_id, customer_email, product_id, plan, status, processed_at from creem_webhook_events order by processed_at desc limit 5'
         ),
         client.query(
           'select user_id, month_key, analysis_count, updated_at from analysis_usage order by updated_at desc limit 5'

@@ -8,6 +8,7 @@ const {
   prepareReviewsForAnalysis,
 } = require('./_analysis');
 const { handleFromUrl, normalizeHandle } = require('./reviews/_shared');
+const { hasSubscriptionAccess } = require('./_creem');
 
 const PRO_MONTHLY_ANALYSIS_LIMIT = 60;
 
@@ -165,21 +166,22 @@ async function getAccessStatus(shop, userId) {
 
     const result = await client.query(
       `
-        SELECT plan, status, updated_at
+        SELECT plan, status, access_until, updated_at
         FROM subscriptions
         WHERE user_id = $1
-          AND status = 'active'
+          AND plan = 'pro'
         ORDER BY updated_at DESC
-        LIMIT 1
       `,
       [userId]
     );
-    const subscription = result.rows[0] || null;
+    const subscription = result.rows.find((row) => hasSubscriptionAccess(row)) || null;
     const usage = subscription ? await getAnalysisUsage(client, userId) : null;
     return {
       authorized,
       paid: Boolean(subscription),
       plan: subscription?.plan || null,
+      subscriptionStatus: subscription?.status || null,
+      accessUntil: subscription?.access_until || null,
       updatedAt: subscription?.updated_at || null,
       usage,
     };
